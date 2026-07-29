@@ -353,6 +353,24 @@ export default function FoundationTakeoff() {
     return pts;
   }, [walls]);
 
+  // Snap increment follows the zoom: pick the finest step that is still at least
+  // MIN_SNAP_PX wide on screen, so zooming in unlocks inch-by-inch control and
+  // zooming out keeps the cursor from getting twitchy.
+  const snapInc = useMemo(() => {
+    const MIN_SNAP_PX = 5;
+    const ladder = [1 / 12, 0.25, 0.5, 1, 2]; // 1", 3", 6", 1', 2'
+    for (const inc of ladder) if (inc * tf.scale >= MIN_SNAP_PX) return inc;
+    return ladder[ladder.length - 1];
+  }, [tf.scale]);
+
+  const snapLabel = useMemo(() => {
+    const inches = snapInc * 12;
+    return inches < 12 ? `${Math.round(inches)}"` : `${snapInc}'`;
+  }, [snapInc]);
+
+  // round a distance/coordinate (ft) to the active snap increment
+  const snapTo = useCallback((v) => Math.round(v / snapInc) * snapInc, [snapInc]);
+
   const snapPreview = useCallback(
     (from, wx, wy, alt) => {
       const tol = 12 / tf.scale;
@@ -363,20 +381,18 @@ export default function FoundationTakeoff() {
       }
       if (from && best && same(best.x, best.y, from.x, from.y)) best = null;
       if (best) return { x: best.x, y: best.y, type: "endpoint" };
-      if (!from) return { x: Math.round(wx * 2) / 2, y: Math.round(wy * 2) / 2, type: "grid" };
+      if (!from) return { x: snapTo(wx), y: snapTo(wy), type: "grid" };
       const dx = wx - from.x, dy = wy - from.y;
       let ang = Math.atan2(dy, dx);
       let d = Math.hypot(dx, dy);
       if (!alt) {
         const step = Math.PI / 4;
         ang = Math.round(ang / step) * step;
-        d = Math.round(d * 2) / 2;
-      } else {
-        d = Math.round(d * 12) / 12;
+        d = snapTo(d);
       }
       return { x: from.x + Math.cos(ang) * d, y: from.y + Math.sin(ang) * d, type: alt ? "free" : "angle", ang };
     },
-    [endpoints, tf.scale]
+    [endpoints, tf.scale, snapTo]
   );
 
   // nearest wall snap for windows
@@ -549,7 +565,7 @@ export default function FoundationTakeoff() {
       return;
     }
     if (mode === "pad") {
-      const gx = Math.round(wx * 2) / 2, gy = Math.round(wy * 2) / 2;
+      const gx = snapTo(wx), gy = snapTo(wy);
       apply((d) => {
         d.pads.push({ id: nid(), x: gx, y: gy, w: padSpec.w, l: padSpec.l, d: padSpec.d });
         return d;
@@ -561,7 +577,7 @@ export default function FoundationTakeoff() {
         const snap = findWallSnap(wx, wy);
         apply((d) => {
           if (snap) d.windows.push({ id: nid(), wallId: snap.wallId, t: snap.t, side: 1, kind: "peek", width: winSpec.width });
-          else d.windows.push({ id: nid(), wallId: null, x: Math.round(wx * 2) / 2, y: Math.round(wy * 2) / 2, ang: 0, side: 1, kind: "peek", width: winSpec.width });
+          else d.windows.push({ id: nid(), wallId: null, x: snapTo(wx), y: snapTo(wy), ang: 0, side: 1, kind: "peek", width: winSpec.width });
           return d;
         });
         return;
@@ -570,7 +586,7 @@ export default function FoundationTakeoff() {
       if (!pendingWin) {
         const snap = findWallSnap(wx, wy);
         if (snap) setPendingWin({ wallId: snap.wallId, t: snap.t });
-        else setPendingWin({ wallId: null, x: Math.round(wx * 2) / 2, y: Math.round(wy * 2) / 2 });
+        else setPendingWin({ wallId: null, x: snapTo(wx), y: snapTo(wy) });
         return;
       }
       const pw = pendingWin;
@@ -663,7 +679,7 @@ export default function FoundationTakeoff() {
 
     if (dragRef.current) {
       const tol = 12 / tf.scale;
-      let nx = Math.round(wx * 2) / 2, ny = Math.round(wy * 2) / 2;
+      let nx = snapTo(wx), ny = snapTo(wy);
       const cluster = new Set(dragRef.current.ids.map((c) => c.id + c.end));
       let best = null, bd = tol;
       for (const w of walls) {
@@ -699,7 +715,7 @@ export default function FoundationTakeoff() {
       const de = dragEntRef.current;
       de.moved = true;
       if (de.type === "pad") {
-        const gx = Math.round(wx * 2) / 2, gy = Math.round(wy * 2) / 2;
+        const gx = snapTo(wx), gy = snapTo(wy);
         setDoc((d) => ({ ...d, pads: d.pads.map((p) => (p.id === de.id ? { ...p, x: gx, y: gy } : p)) }));
       } else if (de.type === "window") {
         const snap = findWallSnap(wx, wy);
@@ -708,7 +724,7 @@ export default function FoundationTakeoff() {
           windows: d.windows.map((w) => {
             if (w.id !== de.id) return w;
             if (snap) return { ...w, wallId: snap.wallId, t: snap.t, side: w.wallId === snap.wallId ? w.side : snap.side, x: undefined, y: undefined };
-            return { ...w, wallId: null, x: Math.round(wx * 2) / 2, y: Math.round(wy * 2) / 2, ang: 0 };
+            return { ...w, wallId: null, x: snapTo(wx), y: snapTo(wy), ang: 0 };
           }),
         }));
       }
@@ -1401,7 +1417,7 @@ export default function FoundationTakeoff() {
 
   const hints = {
     draw: start
-      ? "Click to place endpoint — or type a length + Enter · right-click ends the run · Alt = free angle"
+      ? "Click to place endpoint — or type a length + Enter · right-click ends the run · hold Alt to ignore snap"
       : "Click to start a wall run",
     select: sel ? "Drag to move · Delete removes · edit in the panel" : "Click any wall, footing, pad, window, or area to select · drag empty space to pan",
     pad: "Click to stamp pads · right-click when done",
@@ -1828,7 +1844,12 @@ export default function FoundationTakeoff() {
       {/* status bar */}
       <div style={{ display: "flex", alignItems: "center", gap: 16, padding: "6px 14px", background: COLORS.chromeDeep, borderTop: `1px solid ${COLORS.border}`, fontSize: 11, color: COLORS.textMut }}>
         <span style={{ fontFamily: mono }}>{mouse && view === "2d" ? `${formatFtIn(mouse.x)}, ${formatFtIn(mouse.y)}` : ""}</span>
-        {altFree && view === "2d" && <span style={{ color: COLORS.accent }}>free angle</span>}
+        {view === "2d" && (
+          <span style={{ fontFamily: mono }} title="Snap increment — zoom in for finer control">
+            snap <span style={{ color: COLORS.accent, fontWeight: 700 }}>{snapLabel}</span>
+          </span>
+        )}
+        {altFree && view === "2d" && <span style={{ color: COLORS.accent }}>snap off — free angle</span>}
         <span style={{ marginLeft: "auto" }}>{view === "2d" ? hints[mode] : "3D is view-only — switch to 2D Plan to edit"}</span>
       </div>
 

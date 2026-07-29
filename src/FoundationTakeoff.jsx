@@ -1117,6 +1117,15 @@ export default function FoundationTakeoff() {
     };
     const cInt = (hex) => parseInt(hex.slice(1), 16);
 
+    // All walls share a common top-of-wall elevation (level, per real foundations).
+    // Height differences show up at the bottom instead of the top.
+    const topY = walls.reduce((m, w) => {
+      const len = wallLen(w);
+      if (len < 0.01) return m;
+      if (!shown(wallKey(w))) return m;
+      return Math.max(m, footOf(w).h / 12 + w.depth);
+    }, 0);
+
     walls.forEach((w) => {
       const len = wallLen(w);
       if (len < 0.01) return;
@@ -1124,6 +1133,7 @@ export default function FoundationTakeoff() {
       if (!shown(key)) return;
       const f = footOf(w);
       const fhFt = f.h / 12;
+      const baseY = topY - w.depth; // bottom of wall / top of footing, varies per wall
       const selMat = sel && sel.type === "wall" && sel.id === w.id;
       const col = selMat ? "#ff8a3d" : rowColor(key);
       const widthOfWall = (q) => q.thickness / 12;
@@ -1133,7 +1143,7 @@ export default function FoundationTakeoff() {
         const geo = mkGeo(poly, h);
         const mesh = new THREE.Mesh(geo, mat());
         mesh.rotation.x = -Math.PI / 2;
-        mesh.position.y = fhFt;
+        mesh.position.y = baseY;
         T.group.add(mesh);
         const edges = new THREE.LineSegments(new THREE.EdgesGeometry(geo), new THREE.LineBasicMaterial({ color: cInt(shade(col, 0.55)) }));
         edges.rotation.copy(mesh.rotation);
@@ -1169,6 +1179,7 @@ export default function FoundationTakeoff() {
         const footGeo = mkGeo(fPoly, fhFt);
         const footMesh = new THREE.Mesh(footGeo, new THREE.MeshLambertMaterial({ color: cInt(shade(col, 0.65)) }));
         footMesh.rotation.x = -Math.PI / 2;
+        footMesh.position.y = baseY - fhFt;
         T.group.add(footMesh);
       }
     });
@@ -1193,12 +1204,11 @@ export default function FoundationTakeoff() {
       const col = cInt(selMat ? "#ff8a3d" : rowColor(key));
       const tFt = pose.thickness / 12;
       const wFt = win.width / 12;
-      const fhFt = pose.footH / 12;
       const oh = openingHFor(win, pose.depth);
-      // translucent pane sitting in the opening (color-coded)
+      // translucent pane sitting in the opening (color-coded), hung from the shared top-of-wall line
       const paneGeo = new THREE.BoxGeometry(wFt, oh, 0.08);
       const pane = new THREE.Mesh(paneGeo, new THREE.MeshLambertMaterial({ color: col, transparent: true, opacity: 0.55 }));
-      pane.position.set(pose.x, fhFt + pose.depth - oh / 2, pose.y);
+      pane.position.set(pose.x, topY - oh / 2, pose.y);
       pane.rotation.y = -pose.ang;
       T.group.add(pane);
 
@@ -1211,7 +1221,7 @@ export default function FoundationTakeoff() {
         const ox = -win.side * Math.sin(pose.ang);
         const oz = win.side * Math.cos(pose.ang);
         const d0 = tFt / 2 + 0.03;
-        wellMesh.position.set(pose.x + ox * d0, fhFt + pose.depth - oh / 2 + 0.4, pose.y + oz * d0);
+        wellMesh.position.set(pose.x + ox * d0, topY - oh / 2 + 0.4, pose.y + oz * d0);
         // 2D bump direction in plan is (-side·sin θ, side·cos θ); the half-shell
         // bulges toward local +X, so rotate local +X onto that same direction.
         wellMesh.rotation.y = -pose.ang - win.side * (Math.PI / 2);

@@ -1,0 +1,21 @@
+{
+  "name": "takeoff",
+  "version": "1.0.0",
+  "description": "Interactive 3D foundation takeoff and estimating tool for concrete contractors",
+  "author": "West Suburban Concrete",
+  "license": "MIT",
+  "dependencies": {
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
+    "three": "^0.128.0"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^4.0.0",
+    "vite": "^4.3.0"
+  },
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  }
+}

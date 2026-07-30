@@ -94,6 +94,28 @@ export function wallPolygon(w, allWalls, widthOf) {
   return [ca[0], cb[1], cb[0], ca[1]];
 }
 
+// Length along a wall's exterior face (the mitered outside edge), used as the
+// default dimension label. "Outside" is whichever face is farther from the
+// enclosed interior when the wall is part of a closed loop; walls that
+// aren't part of one (nothing to be "outside" of) fall back to centerline length.
+export function wallOutsideLen(w, allWalls, widthOf) {
+  const len = wallLen(w);
+  if (len < 0.01) return len;
+  const halfW = widthOf(w) / 2;
+  if (halfW < 0.001) return len;
+  const d = { x: (w.x2 - w.x1) / len, y: (w.y2 - w.y1) / len };
+  const n = rot90(d);
+  const mx = (w.x1 + w.x2) / 2, my = (w.y1 + w.y2) / 2;
+  const eps = 0.01;
+  const plusIn = detectRegion(allWalls, mx + n.x * eps, my + n.y * eps);
+  const minusIn = detectRegion(allWalls, mx - n.x * eps, my - n.y * eps);
+  if (!plusIn === !minusIn) return len; // both or neither enclosed — no clear outside face
+  const ca = endCorners({ x: w.x1, y: w.y1 }, d, halfW, allWalls, w, widthOf);
+  const cb = endCorners({ x: w.x2, y: w.y2 }, { x: -d.x, y: -d.y }, halfW, allWalls, w, widthOf);
+  // "+n" side is ca[0]-cb[1]; "-n" side is ca[1]-cb[0] (see wallPolygon above).
+  return plusIn ? dist(ca[1].x, ca[1].y, cb[0].x, cb[0].y) : dist(ca[0].x, ca[0].y, cb[1].x, cb[1].y);
+}
+
 // Plan polygon for the piece of a wall between stations s0..s1 (ft along the wall).
 // Outer ends keep the mitered corners; interior cuts are square.
 export function wallSubPoly(w, allWalls, widthOf, s0, s1) {

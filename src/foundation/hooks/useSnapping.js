@@ -1,13 +1,18 @@
 import { useCallback, useMemo } from "react";
-import { dist, same } from "../geometry";
+import { dist, same, wallPolygon } from "../geometry";
 
 // Endpoint/angle/grid snapping for the drawing tools (walls, ruler, area trace).
 export function useSnapping(walls, scale) {
+  // Centerline endpoints plus each wall's inside/outside face corners, so the
+  // ruler can snap to whichever of the three (centerline, inside, outside) is
+  // nearest the cursor.
   const endpoints = useMemo(() => {
     const pts = [];
     walls.forEach((w) => {
       pts.push({ x: w.x1, y: w.y1 });
       pts.push({ x: w.x2, y: w.y2 });
+      const poly = wallPolygon(w, walls, (q) => q.thickness / 12);
+      if (poly) poly.forEach((p) => pts.push({ x: p.x, y: p.y }));
     });
     return pts;
   }, [walls]);

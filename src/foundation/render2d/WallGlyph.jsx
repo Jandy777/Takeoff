@@ -1,7 +1,7 @@
 import React from "react";
 import { SEL } from "../constants";
 import { MONO as mono } from "../constants";
-import { wallPolygon, wallLen, formatFtIn } from "../geometry";
+import { wallPolygon, wallOutsideLen, formatFtIn } from "../geometry";
 import { footOf, wallKey } from "../model";
 import { hexToRgba, shade } from "../color";
 import { ptsStr } from "./screenUtils";
@@ -18,7 +18,7 @@ export function WallGlyph({ wall: w, isPreview = false, walls, tf, toScreen, sel
   const [x2, y2] = toScreen(w.x2, w.y2);
   const fPx = Math.max(4, (footOf(w).w / 12) * tf.scale);
   const selected = !isPreview && sel && sel.type === "wall" && sel.id === w.id;
-  const len = wallLen(w);
+  const len = wallOutsideLen(w, geomWalls, (q) => q.thickness / 12);
   const midX = (x1 + x2) / 2, midY = (y1 + y2) / 2;
   let ang = (Math.atan2(y2 - y1, x2 - x1) * 180) / Math.PI;
   let flip = false;

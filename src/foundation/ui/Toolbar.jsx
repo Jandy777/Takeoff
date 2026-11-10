@@ -10,6 +10,7 @@ export function Toolbar({
   curD, setCurD, customD, setCustomD,
   wallLengthBasis, setWallLengthBasis,
   drainKind, setDrainKind, drainPts,
+  ledgeKind, setLedgeKind, ledgeSize, setLedgeSize, ledgeStart,
   padSpec, winSpec, setModal,
   doUndo, doRedo, onFit, clearAll, confirmClear,
   view, setView,
@@ -27,6 +28,7 @@ export function Toolbar({
         <Pill active={mode === "area"} onClick={() => setMode("area")}>▱ Sq Ft</Pill>
         <Pill active={mode === "ruler"} onClick={() => setMode("ruler")}>⟷ Ruler</Pill>
         <Pill active={mode === "drain"} onClick={() => setMode("drain")}>Drain tile</Pill>
+        <Pill active={mode === "ledge"} onClick={() => setMode("ledge")}>Ledges</Pill>
       </div>
       {mode === "ruler" && (
         <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
@@ -42,6 +44,18 @@ export function Toolbar({
             <option value="interior">Interior</option>
           </select>
         </label>
+      )}
+      {mode === "ledge" && (
+        <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+          <Label>Ledge</Label>
+          <select value={ledgeKind} disabled={!!ledgeStart} onChange={(e) => setLedgeKind(e.target.value)} style={inputStyle} aria-label="Ledge type">
+            <option value="brick">Brick</option><option value="slab">Slab</option>
+          </select>
+          <select value={ledgeSize} disabled={!!ledgeStart} onChange={(e) => setLedgeSize(e.target.value)} style={inputStyle} aria-label="Ledge size">
+            <option value="2x4">2×4</option><option value="2x6">2×6</option><option value="4x6">4×6</option>
+          </select>
+          <span style={{ fontSize: 10, color: COLORS.textMut }}>drop × width (in)</span>
+        </div>
       )}
       {(mode === "draw" || mode === "select") && (
         <>

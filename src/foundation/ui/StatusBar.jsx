@@ -26,6 +26,8 @@ function hintFor({ mode, start, sel, pendingWin, winSpec, areaMode, rulerPt }) {
       return rulerPt ? "Click the second point to set the measurement" : "Click two points to measure — dimensions stay on the plan until deleted · right-click exits";
     case "drain":
       return "Click anchor points along the drain path · Enter or right-click finishes · Esc cancels";
+    case "ledge":
+      return "Click wall-face corners or points for each segment · right-click finishes · Esc cancels";
     default:
       return "";
   }

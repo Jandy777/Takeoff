@@ -1,6 +1,6 @@
 import React, { useMemo, useState } from "react";
 import { COLORS } from "./foundation/constants";
-import { collectFitPoints, resolveDrainRuns } from "./foundation/geometry";
+import { collectFitPoints, resolveDrainRuns, resolveLedges } from "./foundation/geometry";
 import { useUndoableDoc } from "./foundation/hooks/useUndoableDoc";
 import { useViewport } from "./foundation/hooks/useViewport";
 import { useRowVisibility } from "./foundation/hooks/useRowVisibility";
@@ -23,7 +23,7 @@ export default function FoundationTakeoff() {
   const [view, setView] = useState("2d");
 
   const docState = useUndoableDoc();
-  const doc = useMemo(() => ({ ...docState.doc, drains: resolveDrainRuns(docState.doc.drains, docState.doc.walls) }), [docState.doc]);
+  const doc = useMemo(() => ({ ...docState.doc, drains: resolveDrainRuns(docState.doc.drains, docState.doc.walls), ledges: resolveLedges(docState.doc.ledges, docState.doc.walls) }), [docState.doc]);
 
   const viewport = useViewport(view);
   const visibility = useRowVisibility();
@@ -50,6 +50,7 @@ export default function FoundationTakeoff() {
         curD={editor.curD} setCurD={editor.setCurD} customD={editor.customD} setCustomD={editor.setCustomD}
         wallLengthBasis={editor.wallLengthBasis} setWallLengthBasis={editor.setWallLengthBasis}
         drainKind={editor.drainKind} setDrainKind={editor.setDrainKind} drainPts={editor.drainPts}
+        ledgeKind={editor.ledgeKind} setLedgeKind={editor.setLedgeKind} ledgeSize={editor.ledgeSize} setLedgeSize={editor.setLedgeSize} ledgeStart={editor.ledgeStart}
         padSpec={editor.padSpec} winSpec={editor.winSpec} setModal={editor.setModal}
         doUndo={editor.doUndo} doRedo={editor.doRedo} onFit={onFit}
         clearAll={editor.clearAll} confirmClear={editor.confirmClear}
@@ -70,6 +71,7 @@ export default function FoundationTakeoff() {
               curT={editor.curT} curD={editor.curD} winSpec={editor.winSpec}
               wallLengthBasis={editor.wallLengthBasis}
               drainPts={editor.drainPts} drainKind={editor.drainKind}
+              ledgeStart={editor.ledgeStart}
               onMouseDown={editor.onMouseDown} onMouseMove={editor.onMouseMove} onMouseUp={editor.onMouseUp}
               onWheel={viewport.onWheel}
             />
@@ -94,6 +96,7 @@ export default function FoundationTakeoff() {
           lenDraft={editor.lenDraft} setLenDraft={editor.setLenDraft} setSelLength={editor.setSelLength}
           selectedWallLengths={editor.selectedWallLengths}
           selDrain={editor.selDrain}
+          selLedge={editor.selLedge}
         />
       </div>
 

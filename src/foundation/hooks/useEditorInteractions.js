@@ -3,7 +3,7 @@ import {
   dist, same, clone, pointSegDist, wallLen, formatFtIn, parseLength,
   findWallSnap, windowPose, pointInPoly, detectClearRegion, centerlineClosedWallRun,
   wallFaceLengths, wallMeasuredLen, resizeWallToMeasuredLength,
-  snapToWallFace,
+  snapToWallFace, ledgeOnWallFace,
 } from "../geometry";
 import { nid, footOf } from "../model";
 
@@ -20,11 +20,15 @@ export function useEditorInteractions({ doc, apply, pushUndo, doUndo: undo1, doR
   const { walls, pads, windows, areas } = doc;
   const dims = doc.dims || [];
   const drains = doc.drains || [];
+  const ledges = doc.ledges || [];
 
   const [mode, setMode] = useState("draw"); // draw | select | pad | window | area | ruler
   const [areaMode, setAreaMode] = useState("pick"); // pick | trace
   const [drainKind, setDrainKind] = useState("exterior");
   const [drainPts, setDrainPts] = useState([]);
+  const [ledgeKind, setLedgeKind] = useState("brick");
+  const [ledgeSize, setLedgeSize] = useState("2x4");
+  const [ledgeStart, setLedgeStart] = useState(null);
   const [curT, setCurT] = useState(8);
   const [curD, setCurD] = useState(8);
   const [wallLengthBasis, setWallLengthBasis] = useState("outside");
@@ -155,6 +159,9 @@ export function useEditorInteractions({ doc, apply, pushUndo, doUndo: undo1, doR
   // ---------- hit testing ----------
   const hitTest = useCallback(
     (wx, wy) => {
+      for (const ledge of ledges) {
+        if (ledge.pts.length === 2 && pointSegDist(wx, wy, ledge.pts[0].x, ledge.pts[0].y, ledge.pts[1].x, ledge.pts[1].y) < 7 / tf.scale) return { type: "ledge", id: ledge.id };
+      }
       for (const drain of drains) {
         for (let i = 1; i < drain.pts.length; i++) {
           const a = drain.pts[i - 1], b = drain.pts[i];
@@ -183,7 +190,7 @@ export function useEditorInteractions({ doc, apply, pushUndo, doUndo: undo1, doR
       }
       return null;
     },
-    [drains, dims, windows, walls, pads, areas, tf.scale]
+    [ledges, drains, dims, windows, walls, pads, areas, tf.scale]
   );
 
   // ---------- mouse ----------
@@ -196,6 +203,7 @@ export function useEditorInteractions({ doc, apply, pushUndo, doUndo: undo1, doR
         return;
       }
       if (e.button === 2) {
+        if (mode === "ledge") { setLedgeStart(null); e.preventDefault(); return; }
         if (mode === "drain") { finishDrain(); e.preventDefault(); return; }
         if (mode === "draw") { setStart(null); setRunStart(null); setTyped(""); runWallIdsRef.current = []; }
         else if (mode === "area" && areaMode === "trace") closeTrace();
@@ -207,6 +215,27 @@ export function useEditorInteractions({ doc, apply, pushUndo, doUndo: undo1, doR
       }
       if (e.button !== 0) return;
       const [wx, wy] = toWorld(sx, sy);
+
+      if (mode === "ledge") {
+        const pt = snapToWallFace(wx, wy, walls, 12 / tf.scale);
+        if (!pt) { showToast("Select a wall face or corner for the ledge."); return; }
+        if (!ledgeStart) { setLedgeStart({ x: pt.x, y: pt.y }); return; }
+        const span = ledgeOnWallFace(ledgeStart, pt, walls, 0.02);
+        if (!span) { showToast("Select the next point on the same wall face. Place separate segments around corners."); return; }
+        const wall = walls.find((w) => w.id === span.wallId);
+        const [drop, width] = ledgeSize.split("x").map(Number);
+        if (width >= wall.thickness || drop / 12 >= wall.depth) { showToast("Ledge must be smaller than the wall thickness and height."); return; }
+        const low = Math.min(span.t0, span.t1), high = Math.max(span.t0, span.t1);
+        if (ledges.some((l) => l.wallId === span.wallId && l.start === span.start && Math.max(low, Math.min(l.t0, l.t1)) < Math.min(high, Math.max(l.t0, l.t1)) - 1e-6)) {
+          showToast("A ledge already occupies part of this wall face."); return;
+        }
+        if (ledges.some((l) => l.wallId === span.wallId && l.start !== span.start && width + Number(l.size.split("x")[1]) >= wall.thickness && Math.max(low, Math.min(l.t0, l.t1)) < Math.min(high, Math.max(l.t0, l.t1)) - 1e-6)) {
+          showToast("Opposite ledges would remove the entire wall thickness."); return;
+        }
+        apply((d) => { d.ledges = [...(d.ledges || []), { id: nid(), kind: ledgeKind, size: ledgeSize, wallId: span.wallId, start: span.start, end: span.end, t0: span.t0, t1: span.t1 }]; return d; });
+        setLedgeStart({ x: pt.x, y: pt.y });
+        return;
+      }
 
       if (mode === "drain") {
         const pt = snapToWallFace(wx, wy, walls, 12 / tf.scale) || { x: snapTo(wx), y: snapTo(wy) };
@@ -337,7 +366,7 @@ export function useEditorInteractions({ doc, apply, pushUndo, doUndo: undo1, doR
         beginPan(sx, sy);
       }
     },
-    [svgPoint, beginPan, tf, mode, areaMode, rulerPt, pendingWin, toWorld, commitWallPoint, snapPreview, start, apply, snapTo, padSpec, winSpec, walls, areas, sel, doc, hitTest, closeTrace, commitTracePoint, tracePts, showToast, drainPts, finishDrain]
+    [svgPoint, beginPan, tf, mode, areaMode, rulerPt, pendingWin, toWorld, commitWallPoint, snapPreview, start, apply, snapTo, padSpec, winSpec, walls, areas, sel, doc, hitTest, closeTrace, commitTracePoint, tracePts, showToast, drainPts, finishDrain, ledgeStart, ledgeSize, ledgeKind, ledges]
   );
 
   const onMouseMove = useCallback(
@@ -404,6 +433,7 @@ export function useEditorInteractions({ doc, apply, pushUndo, doUndo: undo1, doR
       }
 
       if (mode === "draw") setSnapInfo(snapPreview(start, wx, wy, e.altKey));
+      else if (mode === "ledge") setSnapInfo(snapToWallFace(wx, wy, walls, 12 / tf.scale));
       else if (mode === "drain") setSnapInfo(snapToWallFace(wx, wy, walls, 12 / tf.scale) || { x: snapTo(wx), y: snapTo(wy), type: "grid" });
       else if (mode === "ruler") setSnapInfo(snapPreview(rulerPt, wx, wy, e.altKey));
       else if (mode === "area" && areaMode === "trace")
@@ -438,12 +468,14 @@ export function useEditorInteractions({ doc, apply, pushUndo, doUndo: undo1, doR
           return { ...run, pts: run.pts.map((p, i) => p.anchor?.wallId === sel.id ? { x: visible.pts[i].x, y: visible.pts[i].y } : p) };
         });
         d.walls = d.walls.filter((w) => w.id !== sel.id);
+        d.ledges = (d.ledges || []).filter((l) => l.wallId !== sel.id);
         d.windows = d.windows.filter((w) => w.wallId !== sel.id);
       } else if (sel.type === "pad") d.pads = d.pads.filter((p) => p.id !== sel.id);
       else if (sel.type === "window") d.windows = d.windows.filter((w) => w.id !== sel.id);
       else if (sel.type === "area") d.areas = d.areas.filter((a) => a.id !== sel.id);
       else if (sel.type === "dim") d.dims = (d.dims || []).filter((m) => m.id !== sel.id);
       else if (sel.type === "drain") d.drains = (d.drains || []).filter((m) => m.id !== sel.id);
+      else if (sel.type === "ledge") d.ledges = (d.ledges || []).filter((m) => m.id !== sel.id);
       return d;
     });
     setSel(null);
@@ -467,6 +499,7 @@ export function useEditorInteractions({ doc, apply, pushUndo, doUndo: undo1, doR
       }
       if (e.key === "Escape") {
         setDrainPts([]);
+        setLedgeStart(null);
         setStart(null); setRunStart(null); setTracePts([]); setRulerPt(null); setPendingWin(null); setTyped("");
         runWallIdsRef.current = [];
         setSel(null); setConfirmClear(false); setModal(null);
@@ -509,6 +542,7 @@ export function useEditorInteractions({ doc, apply, pushUndo, doUndo: undo1, doR
   useEffect(() => {
     setStart(null); setRunStart(null); setTracePts([]); setRulerPt(null); setPendingWin(null); setTyped("");
     setDrainPts([]);
+    setLedgeStart(null);
     runWallIdsRef.current = [];
     if (mode !== "select") setSel(null);
     if (mode === "pad") setModal("pad");
@@ -523,8 +557,17 @@ export function useEditorInteractions({ doc, apply, pushUndo, doUndo: undo1, doR
   const selArea = sel && sel.type === "area" ? areas.find((a) => a.id === sel.id) : null;
   const selDim = sel && sel.type === "dim" ? dims.find((m) => m.id === sel.id) : null;
   const selDrain = sel && sel.type === "drain" ? drains.find((m) => m.id === sel.id) : null;
+  const selLedge = sel && sel.type === "ledge" ? ledges.find((m) => m.id === sel.id) : null;
 
-  const updateWall = useCallback((patch) => selWall && apply((d) => { d.walls = d.walls.map((w) => (w.id === selWall.id ? { ...w, ...patch } : w)); return d; }), [selWall, apply]);
+  const updateWall = useCallback((patch) => {
+    if (!selWall) return;
+    const updated = { ...selWall, ...patch };
+    const attached = ledges.filter((l) => l.wallId === selWall.id);
+    if (attached.some((l) => Number(l.size.split("x")[1]) >= updated.thickness || Number(l.size.split("x")[0]) / 12 >= updated.depth) || attached.some((a) => attached.some((b) => a.start !== b.start && Number(a.size.split("x")[1]) + Number(b.size.split("x")[1]) >= updated.thickness && Math.max(Math.min(a.t0, a.t1), Math.min(b.t0, b.t1)) < Math.min(Math.max(a.t0, a.t1), Math.max(b.t0, b.t1)) - 1e-6))) {
+      showToast("Wall is too small for the attached ledge. Delete the ledge first."); return;
+    }
+    apply((d) => { d.walls = d.walls.map((w) => (w.id === selWall.id ? { ...w, ...patch } : w)); return d; });
+  }, [selWall, apply, ledges, showToast]);
   const updatePad = useCallback((patch) => selPad && apply((d) => { d.pads = d.pads.map((p) => (p.id === selPad.id ? { ...p, ...patch } : p)); return d; }), [selPad, apply]);
   const updateWin = useCallback((patch) => selWin && apply((d) => { d.windows = d.windows.map((w) => (w.id === selWin.id ? { ...w, ...patch } : w)); return d; }), [selWin, apply]);
   const updateArea = useCallback((patch) => selArea && apply((d) => { d.areas = d.areas.map((a) => (a.id === selArea.id ? { ...a, ...patch } : a)); return d; }), [selArea, apply]);
@@ -561,6 +604,7 @@ export function useEditorInteractions({ doc, apply, pushUndo, doUndo: undo1, doR
   return {
     mode, setMode, areaMode, setAreaMode: selectAreaMode,
     drainKind, setDrainKind, drainPts, selDrain,
+    ledgeKind, setLedgeKind, ledgeSize, setLedgeSize, ledgeStart, selLedge,
     curT, setCurT, curD, setCurD, customT, setCustomT, customD, setCustomD,
     wallLengthBasis, setWallLengthBasis,
     sel, setSel, selWall, selPad, selWin, selArea, selDim,

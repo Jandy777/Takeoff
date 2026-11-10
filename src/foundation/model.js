@@ -16,5 +16,5 @@ export const padKey = (p) => `pad|${p.w}x${p.l}x${p.d}`;
 export const winKey = (w) => `win|${w.kind}|${w.width}`;
 export const areaKey = (a) => `area|${a.id}`;
 
-export const EMPTY_DOC = { walls: [], pads: [], windows: [], areas: [], dims: [], drains: [] };
+export const EMPTY_DOC = { walls: [], pads: [], windows: [], areas: [], dims: [], drains: [], ledges: [] };
 

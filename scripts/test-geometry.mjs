@@ -20,6 +20,8 @@ const {
   wallMeasuredLen,
   snapToWallFace,
   resolveDrainRuns,
+  ledgeOnWallFace,
+  resolveLedges,
 } = await server.ssrLoadModule("/src/foundation/geometry.js");
 const { computeTakeoff } = await server.ssrLoadModule("/src/foundation/takeoff.js");
 const THREE = await import("three");
@@ -125,7 +127,24 @@ try {
   assert.ok(mixedArea, "mixed wall thickness area is detected");
   closeTo(Math.abs(shoelace(mixedArea)), (15 - 16 / 12) * (15 - 20 / 12), "mixed thickness clear area");
 
+  const ledgeSpan = ledgeOnWallFace({ x: 0, y: 0 }, { x: 15, y: 0 }, square, 0.01);
+  assert.ok(ledgeSpan, "finds the wall face between two outside corners");
+  const ledge = { id: 30, kind: "brick", size: "2x4", ...ledgeSpan };
+  const resolvedLedge = resolveLedges([ledge], square);
+  closeTo(distForTest(resolvedLedge[0].pts), 15, "ledge BOM face length");
+  const ledgeTotals = computeTakeoff({ walls: square, pads: [], windows: [], areas: [], ledges: resolvedLedge });
+  closeTo(ledgeTotals.ledgeRows[0].len, 15, "ledge rollup");
+  const changedLedge = resolveLedges([ledge], square.map((w) => ({ ...w, thickness: 10 })));
+  closeTo(changedLedge[0].pts[0].y, -1 / 12, "ledge follows wall thickness change");
+  const ledgeGroup = new THREE.Group();
+  buildScene(ledgeGroup, { walls: square, pads: [], windows: [], areas: [], ledges: resolvedLedge }, null, () => true, () => "#777777");
+  const upperWall = ledgeGroup.children.find((obj) => obj.isMesh && obj.position.y > 1 && obj.geometry.type === "ExtrudeGeometry");
+  assert.ok(upperWall, "recessed ledge creates an upper wall layer");
+  closeTo(upperWall.geometry.parameters.options.depth, 2 / 12, "ledge drop in 3D");
+
   console.log("Geometry tests passed: outside, centerline, inside, direction, and resize.");
 } finally {
   await server.close();
 }
+
+function distForTest(points) { return Math.hypot(points[1].x - points[0].x, points[1].y - points[0].y); }

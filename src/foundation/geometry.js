@@ -142,6 +142,37 @@ export function resolveDrainRuns(drains, walls) {
   return (drains || []).map((drain) => ({ ...drain, pts: drain.pts.map((point) => resolveDrainPoint(point, walls)) }));
 }
 
+// Identify one wall face containing both picked points. Store proportional
+// positions on that face so the ledge follows later wall edits.
+export function ledgeOnWallFace(a, b, walls, tolerance) {
+  let best = null;
+  for (const w of walls) {
+    const poly = wallPolygon(w, walls, (q) => q.thickness / 12);
+    if (!poly) continue;
+    for (const [start, end] of [[0, 1], [3, 2]]) {
+      const p = poly[start], q = poly[end], dx = q.x - p.x, dy = q.y - p.y, l2 = dx * dx + dy * dy;
+      if (l2 < 1e-8) continue;
+      const project = (v) => {
+        const t = Math.max(0, Math.min(1, ((v.x - p.x) * dx + (v.y - p.y) * dy) / l2));
+        return { t, distance: dist(v.x, v.y, p.x + t * dx, p.y + t * dy) };
+      };
+      const pa = project(a), pb = project(b);
+      if (pa.distance > tolerance || pb.distance > tolerance || Math.abs(pa.t - pb.t) * Math.sqrt(l2) < 0.02) continue;
+      const score = pa.distance + pb.distance;
+      if (!best || score < best.score) best = { wallId: w.id, start, end, t0: pa.t, t1: pb.t, score };
+    }
+  }
+  return best;
+}
+
+export function resolveLedges(ledges, walls) {
+  return (ledges || []).map((ledge) => {
+    const a = resolveDrainPoint({ anchor: { wallId: ledge.wallId, start: ledge.start, end: ledge.end, t: ledge.t0 } }, walls);
+    const b = resolveDrainPoint({ anchor: { wallId: ledge.wallId, start: ledge.start, end: ledge.end, t: ledge.t1 } }, walls);
+    return { ...ledge, pts: Number.isFinite(a.x) && Number.isFinite(b.x) ? [a, b] : [] };
+  });
+}
+
 // Convert a closed run whose entered vertices describe a wall face into the
 // centerline geometry used by the rest of the editor. For an outside-face
 // run we offset toward the enclosed region; for an inside-face run we offset

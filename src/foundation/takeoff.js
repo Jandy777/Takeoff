@@ -4,7 +4,7 @@ import { footOf, wallKey, padKey, winKey, areaKey } from "./model";
 // Pure rollup of a document's entities into the grouped rows shown in the
 // takeoff panel. Kept free of React so it can be unit tested and reused
 // (e.g. for export/print) without mounting the editor.
-export function computeTakeoff({ walls, pads, windows, areas, drains = [] }) {
+export function computeTakeoff({ walls, pads, windows, areas, drains = [], ledges = [] }) {
   const wallGroups = new Map();
   let totalLF = 0;
   for (const w of walls) {
@@ -37,6 +37,13 @@ export function computeTakeoff({ walls, pads, windows, areas, drains = [] }) {
     const len = runs.reduce((sum, run) => sum + run.pts.slice(1).reduce((n, p, i) => n + dist(run.pts[i].x, run.pts[i].y, p.x, p.y), 0), 0);
     return { kind, len, count: runs.length };
   }).filter((r) => r.count);
+  const ledgeGroups = new Map();
+  for (const ledge of ledges) {
+    if (ledge.pts?.length !== 2) continue;
+    const key = `${ledge.kind}|${ledge.size}`;
+    if (!ledgeGroups.has(key)) ledgeGroups.set(key, { kind: ledge.kind, size: ledge.size, len: 0 });
+    ledgeGroups.get(key).len += dist(ledge.pts[0].x, ledge.pts[0].y, ledge.pts[1].x, ledge.pts[1].y);
+  }
   return {
     wallRows: [...wallGroups.values()].sort((a, b) => a.thickness - b.thickness || a.depth - b.depth),
     padRows: [...padGroups.values()].sort((a, b) => a.w - b.w || a.l - b.l),
@@ -45,6 +52,7 @@ export function computeTakeoff({ walls, pads, windows, areas, drains = [] }) {
     totalLF,
     totalSF,
     drainRows,
+    ledgeRows: [...ledgeGroups.values()],
   };
 }
 

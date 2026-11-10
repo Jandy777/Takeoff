@@ -11,8 +11,9 @@ export function TakeoffPanel({
   lenDraft, setLenDraft, setSelLength,
   selectedWallLengths,
   selDrain,
+  selLedge,
 }) {
-  const hasDoc = Boolean(takeoff.wallRows.length || takeoff.padRows.length || takeoff.winRows.length || takeoff.areaRows.length || takeoff.drainRows.length);
+  const hasDoc = Boolean(takeoff.wallRows.length || takeoff.padRows.length || takeoff.winRows.length || takeoff.areaRows.length || takeoff.drainRows.length || takeoff.ledgeRows.length);
   const onSelectColor = (key, color) => setRowColors((c) => ({ ...c, [key]: color }));
   const rowProps = (key) => ({
     active: soloSet.has(key), dimmed: soloSet.size > 0 && !soloSet.has(key),
@@ -99,6 +100,12 @@ export function TakeoffPanel({
             ))}
           </>
         )}
+        {takeoff.ledgeRows.length > 0 && <>
+          <div style={{ margin: "6px 0 6px" }}><Label>Ledges — lineal feet</Label></div>
+          {takeoff.ledgeRows.map((r) => <div key={`${r.kind}-${r.size}`} style={{ display: "flex", justifyContent: "space-between", padding: "6px 10px", fontSize: 12 }}>
+            <span>{r.kind === "brick" ? "Brick" : "Slab"} {r.size.replace("x", "×")}</span><span style={{ fontFamily: mono }}>{formatFtIn(r.len)}</span>
+          </div>)}
+        </>}
 
         {hasDoc && (
           <div style={{ fontSize: 10, color: COLORS.textMut, marginTop: 4, lineHeight: 1.5 }}>
@@ -245,6 +252,10 @@ export function TakeoffPanel({
           <div style={{ fontSize: 10, color: COLORS.textMut, marginTop: 6 }}>Delete and redraw to change the path.</div>
         </div>
       )}
+      {selLedge && <div style={{ borderTop: `1px solid ${COLORS.border}`, padding: "12px 14px", display: "flex", justifyContent: "space-between" }}>
+        <Label>{selLedge.kind} ledge {selLedge.size.replace("x", "×")}</Label>
+        <button onClick={deleteSel} style={{ background: "transparent", border: `1px solid ${COLORS.border}`, color: "#e07b7b", borderRadius: 6, padding: "3px 8px", cursor: "pointer" }}>Delete segment</button>
+      </div>}
     </div>
   );
 }

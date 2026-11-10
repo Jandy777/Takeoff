@@ -20,7 +20,7 @@ export function PlanCanvas({
   mode, areaMode, start, tracePts, rulerPt, pendingWin, mouse, snapInfo,
   curT, curD, winSpec,
   wallLengthBasis,
-  drainPts, drainKind,
+  drainPts, drainKind, ledgeStart,
   onMouseDown, onMouseMove, onMouseUp, onWheel,
 }) {
   const { walls, pads, windows, areas, dims } = doc;
@@ -44,6 +44,12 @@ export function PlanCanvas({
           stroke={sel?.type === "drain" && sel.id === drain.id ? SEL : drain.kind === "exterior" ? "#1572a1" : "#9a42aa"}
           strokeWidth={4} strokeDasharray={drain.kind === "interior" ? "7 4" : undefined} strokeLinecap="round" strokeLinejoin="round" />
       ))}</g>
+      <g>{(doc.ledges || []).filter((ledge) => ledge.pts.length === 2).map((ledge) => (
+        <polyline key={ledge.id} points={ptsStr(ledge.pts, toScreen)} fill="none"
+          stroke={sel?.type === "ledge" && sel.id === ledge.id ? SEL : ledge.kind === "brick" ? "#b64a35" : "#937132"}
+          strokeWidth={5} strokeLinecap="round" />
+      ))}</g>
+      {mode === "ledge" && ledgeStart && snapInfo && <line x1={toScreen(ledgeStart.x, ledgeStart.y)[0]} y1={toScreen(ledgeStart.x, ledgeStart.y)[1]} x2={toScreen(snapInfo.x, snapInfo.y)[0]} y2={toScreen(snapInfo.x, snapInfo.y)[1]} stroke="#b64a35" strokeWidth={3} strokeDasharray="6 4" />}
       {mode === "drain" && drainPts.length > 0 && (
         <g>
           <polyline points={ptsStr(snapInfo ? [...drainPts, snapInfo] : drainPts, toScreen)} fill="none"
@@ -74,7 +80,7 @@ export function PlanCanvas({
         />
       )}
       {mode === "draw" && start && (() => { const [sx, sy] = toScreen(start.x, start.y); return <circle cx={sx} cy={sy} r={4} fill={SEL} />; })()}
-      {(mode === "draw" || mode === "ruler" || mode === "drain" || (mode === "area" && areaMode === "trace")) && snapInfo && ["endpoint", "wall corner", "wall face"].includes(snapInfo.type) && (() => {
+      {(mode === "draw" || mode === "ruler" || mode === "drain" || mode === "ledge" || (mode === "area" && areaMode === "trace")) && snapInfo && ["endpoint", "wall corner", "wall face"].includes(snapInfo.type) && (() => {
         const [sx, sy] = toScreen(snapInfo.x, snapInfo.y);
         const label = snapInfo.type === "wall face" ? "WALL FACE" : "CORNER";
         return <g pointerEvents="none" aria-label={`${label} snap`}>

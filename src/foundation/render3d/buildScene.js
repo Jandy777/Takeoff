@@ -17,7 +17,7 @@ const cInt = (hex) => parseInt(hex.slice(1), 16);
 // Tears down and rebuilds every mesh in `group` from the current document.
 // Pure with respect to React: only reads doc/sel/shown/rowColor, only writes
 // into the THREE.Group handed to it.
-export function buildScene(group, { walls, pads, windows, areas, drains = [] }, sel, shown, rowColor) {
+export function buildScene(group, { walls, pads, windows, areas, drains = [], ledges = [] }, sel, shown, rowColor) {
   while (group.children.length) {
     const c = group.children[0];
     group.remove(c);
@@ -46,12 +46,12 @@ export function buildScene(group, { walls, pads, windows, areas, drains = [] }, 
     const col = selMat ? SELECTED_COLOR : rowColor(key);
     const widthOfWall = (q) => q.thickness / 12;
     const mat = () => new THREE.MeshLambertMaterial({ color: cInt(col) });
-    const addPiece = (poly, h) => {
+    const addPiece = (poly, h, bottom = baseY) => {
       if (!poly || h < 0.05) return;
       const geo = mkGeo(poly, h);
       const mesh = new THREE.Mesh(geo, mat());
       mesh.rotation.x = -Math.PI / 2;
-      mesh.position.y = baseY;
+      mesh.position.y = bottom;
       group.add(mesh);
       const edges = new THREE.LineSegments(new THREE.EdgesGeometry(geo), new THREE.LineBasicMaterial({ color: cInt(shade(col, 0.55)) }));
       edges.rotation.copy(mesh.rotation);
@@ -69,9 +69,22 @@ export function buildScene(group, { walls, pads, windows, areas, drains = [] }, 
       .filter((c) => c.s1 - c.s0 > 0.05)
       .sort((a, b) => a.s0 - b.s0);
 
-    if (!cuts.length) {
+    const wallLedges = ledges.filter((l) => l.wallId === w.id).map((l) => {
+      const [drop, width] = l.size.split("x").map(Number);
+      const station = (t) => {
+        if (t <= 1e-6) return 0;
+        if (t >= 1 - 1e-6) return len;
+        const face = wallPolygon(w, walls, widthOfWall);
+        const a = face[l.start], b = face[l.end];
+        const x = a.x + t * (b.x - a.x), y = a.y + t * (b.y - a.y);
+        return Math.max(0, Math.min(len, ((x - w.x1) * (w.x2 - w.x1) + (y - w.y1) * (w.y2 - w.y1)) / len));
+      };
+      const first = station(l.t0), last = station(l.t1);
+      return { ...l, s0: Math.min(first, last), s1: Math.max(first, last), drop: drop / 12, width: width / 12 };
+    });
+    if (!cuts.length && !wallLedges.length) {
       addPiece(wallPolygon(w, walls, widthOfWall), w.depth);
-    } else {
+    } else if (!wallLedges.length) {
       let cursor = 0;
       cuts.forEach((c) => {
         if (c.s0 - cursor > 0.02) addPiece(wallSubPoly(w, walls, widthOfWall, cursor, c.s0), w.depth);
@@ -80,6 +93,30 @@ export function buildScene(group, { walls, pads, windows, areas, drains = [] }, 
         cursor = Math.max(cursor, c.s1);
       });
       if (len - cursor > 0.02) addPiece(wallSubPoly(w, walls, widthOfWall, cursor, len), w.depth);
+    } else {
+      // Break at every opening and ledge boundary, then build horizontal
+      // layers. The upper layer omits the selected wall-face strip.
+      const stations = [0, len, ...cuts.flatMap((c) => [c.s0, c.s1]), ...wallLedges.flatMap((l) => [l.s0, l.s1])].sort((a, b) => a - b).filter((v, i, a) => !i || v - a[i - 1] > 1e-7);
+      for (let i = 1; i < stations.length; i++) {
+        const s0 = stations[i - 1], s1 = stations[i], mid = (s0 + s1) / 2;
+        const poly = wallSubPoly(w, walls, widthOfWall, s0, s1);
+        if (!poly) continue;
+        const opening = cuts.filter((c) => mid > c.s0 && mid < c.s1).reduce((v, c) => Math.max(v, c.oh), 0);
+        const wallHeight = Math.max(0, w.depth - opening);
+        const active = opening ? [] : wallLedges.filter((l) => mid > l.s0 && mid < l.s1);
+        const levels = [0, wallHeight, ...active.map((l) => Math.max(0, w.depth - l.drop))].filter((v) => v >= 0 && v <= wallHeight).sort((a, b) => a - b).filter((v, j, a) => !j || v - a[j - 1] > 1e-7);
+        const lerp = (a, b, t) => ({ x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t });
+        for (let j = 1; j < levels.length; j++) {
+          const lo = levels[j - 1], hi = levels[j];
+          const cutting = active.filter((l) => (lo + hi) / 2 >= w.depth - l.drop);
+          const plus = Math.max(0, ...cutting.filter((l) => l.start === 0).map((l) => l.width));
+          const minus = Math.max(0, ...cutting.filter((l) => l.start === 3).map((l) => l.width));
+          const thickness = w.thickness / 12;
+          if (plus + minus >= thickness) continue;
+          const p = [lerp(poly[0], poly[3], plus / thickness), lerp(poly[1], poly[2], plus / thickness), lerp(poly[2], poly[1], minus / thickness), lerp(poly[3], poly[0], minus / thickness)];
+          addPiece(p, hi - lo, baseY + lo);
+        }
+      }
     }
 
     const fPoly = wallPolygon(w, walls, (q) => footOf(q).w / 12);

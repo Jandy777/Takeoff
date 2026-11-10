@@ -10,10 +10,11 @@ export const nid = () => _id++;
 
 export const wallKey = (w) => {
   const f = footOf(w);
-  return `wall|${w.thickness}|${w.depth}|${f.w}|${f.h}`;
+  return `wall|${w.thickness}|${w.depth}|${f.w}|${f.h}|${w.lengthBasis || "centerline"}`;
 };
 export const padKey = (p) => `pad|${p.w}x${p.l}x${p.d}`;
 export const winKey = (w) => `win|${w.kind}|${w.width}`;
 export const areaKey = (a) => `area|${a.id}`;
 
-export const EMPTY_DOC = { walls: [], pads: [], windows: [], areas: [], dims: [] };
+export const EMPTY_DOC = { walls: [], pads: [], windows: [], areas: [], dims: [], drains: [] };
+

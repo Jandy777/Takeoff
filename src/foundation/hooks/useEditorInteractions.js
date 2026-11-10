@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   dist, same, clone, pointSegDist, wallLen, formatFtIn, parseLength,
-  findWallSnap, windowPose, pointInPoly, detectRegion,
+  findWallSnap, windowPose, pointInPoly, detectClearRegion, centerlineClosedWallRun,
+  wallFaceLengths, wallMeasuredLen, resizeWallToMeasuredLength,
+  snapToWallFace,
 } from "../geometry";
 import { nid, footOf } from "../model";
 
@@ -17,11 +19,15 @@ export function useEditorInteractions({ doc, apply, pushUndo, doUndo: undo1, doR
   const { snapTo, snapPreview } = snapping;
   const { walls, pads, windows, areas } = doc;
   const dims = doc.dims || [];
+  const drains = doc.drains || [];
 
   const [mode, setMode] = useState("draw"); // draw | select | pad | window | area | ruler
   const [areaMode, setAreaMode] = useState("pick"); // pick | trace
+  const [drainKind, setDrainKind] = useState("exterior");
+  const [drainPts, setDrainPts] = useState([]);
   const [curT, setCurT] = useState(8);
   const [curD, setCurD] = useState(8);
+  const [wallLengthBasis, setWallLengthBasis] = useState("outside");
   const [customT, setCustomT] = useState("");
   const [customD, setCustomD] = useState("");
   const [sel, setSel] = useState(null); // {type, id}
@@ -45,6 +51,8 @@ export function useEditorInteractions({ doc, apply, pushUndo, doUndo: undo1, doR
 
   const dragRef = useRef(null); // wall endpoint drag
   const dragEntRef = useRef(null); // pad/window drag
+  const runWallIdsRef = useRef([]);
+  const runBasisRef = useRef("outside");
 
   const showToast = useCallback((msg) => {
     setToast(msg);
@@ -61,13 +69,14 @@ export function useEditorInteractions({ doc, apply, pushUndo, doUndo: undo1, doR
 
   // ---------- placement / drawing ----------
   const addWall = useCallback(
-    (x1, y1, x2, y2) => {
+    (x1, y1, x2, y2, lengthBasis) => {
       if (dist(x1, y1, x2, y2) < 0.01) return false;
+      const id = nid();
       apply((d) => {
-        d.walls.push({ id: nid(), x1, y1, x2, y2, thickness: curT, depth: curD, footing: null });
+        d.walls.push({ id, x1, y1, x2, y2, thickness: curT, depth: curD, footing: null, lengthBasis });
         return d;
       });
-      return true;
+      return id;
     },
     [apply, curT, curD]
   );
@@ -77,19 +86,39 @@ export function useEditorInteractions({ doc, apply, pushUndo, doUndo: undo1, doR
       if (!start) {
         setStart({ x: pt.x, y: pt.y });
         setRunStart({ x: pt.x, y: pt.y });
+        runWallIdsRef.current = [];
+        runBasisRef.current = wallLengthBasis;
         setTyped("");
         return;
       }
-      if (!addWall(start.x, start.y, pt.x, pt.y)) return;
+      const closesRun = Boolean(runStart && same(pt.x, pt.y, runStart.x, runStart.y));
+      const basis = runBasisRef.current;
+      if (closesRun && runWallIdsRef.current.length >= 2 && basis !== "centerline") {
+        const id = nid();
+        const priorIds = [...runWallIdsRef.current, id];
+        apply((d) => {
+          d.walls.push({ id, x1: start.x, y1: start.y, x2: pt.x, y2: pt.y, thickness: curT, depth: curD, footing: null, lengthBasis: basis });
+          const ordered = priorIds.map((wallId) => d.walls.find((w) => w.id === wallId)).filter(Boolean);
+          const centered = centerlineClosedWallRun(ordered, basis);
+          const byId = new Map(centered.map((w) => [w.id, w]));
+          d.walls = d.walls.map((w) => byId.get(w.id) || w);
+          return d;
+        });
+      } else {
+        const id = addWall(start.x, start.y, pt.x, pt.y, basis);
+        if (!id) return;
+        runWallIdsRef.current.push(id);
+      }
       setTyped("");
-      if (runStart && same(pt.x, pt.y, runStart.x, runStart.y)) {
+      if (closesRun) {
         setStart(null);
         setRunStart(null);
+        runWallIdsRef.current = [];
       } else {
         setStart({ x: pt.x, y: pt.y });
       }
     },
-    [start, runStart, addWall]
+    [start, runStart, wallLengthBasis, addWall, apply, curT, curD]
   );
 
   const closeTrace = useCallback(() => {
@@ -116,9 +145,22 @@ export function useEditorInteractions({ doc, apply, pushUndo, doUndo: undo1, doR
     [tracePts, tf.scale, closeTrace]
   );
 
+  const finishDrain = useCallback(() => {
+    if (drainPts.length >= 2) {
+      apply((d) => { d.drains = [...(d.drains || []), { id: nid(), kind: drainKind, pts: clone(drainPts) }]; return d; });
+    }
+    setDrainPts([]);
+  }, [drainPts, drainKind, apply]);
+
   // ---------- hit testing ----------
   const hitTest = useCallback(
     (wx, wy) => {
+      for (const drain of drains) {
+        for (let i = 1; i < drain.pts.length; i++) {
+          const a = drain.pts[i - 1], b = drain.pts[i];
+          if (pointSegDist(wx, wy, a.x, a.y, b.x, b.y) < 8 / tf.scale) return { type: "drain", id: drain.id };
+        }
+      }
       for (const m of dims) {
         if (pointSegDist(wx, wy, m.x1, m.y1, m.x2, m.y2) < 6 / tf.scale) return { type: "dim", id: m.id };
       }
@@ -141,7 +183,7 @@ export function useEditorInteractions({ doc, apply, pushUndo, doUndo: undo1, doR
       }
       return null;
     },
-    [dims, windows, walls, pads, areas, tf.scale]
+    [drains, dims, windows, walls, pads, areas, tf.scale]
   );
 
   // ---------- mouse ----------
@@ -154,7 +196,8 @@ export function useEditorInteractions({ doc, apply, pushUndo, doUndo: undo1, doR
         return;
       }
       if (e.button === 2) {
-        if (mode === "draw") { setStart(null); setRunStart(null); setTyped(""); }
+        if (mode === "drain") { finishDrain(); e.preventDefault(); return; }
+        if (mode === "draw") { setStart(null); setRunStart(null); setTyped(""); runWallIdsRef.current = []; }
         else if (mode === "area" && areaMode === "trace") closeTrace();
         else if (mode === "ruler") { rulerPt ? setRulerPt(null) : setMode("select"); }
         else if (mode === "window") { pendingWin ? setPendingWin(null) : setMode("select"); }
@@ -164,6 +207,13 @@ export function useEditorInteractions({ doc, apply, pushUndo, doUndo: undo1, doR
       }
       if (e.button !== 0) return;
       const [wx, wy] = toWorld(sx, sy);
+
+      if (mode === "drain") {
+        const pt = snapToWallFace(wx, wy, walls, 12 / tf.scale) || { x: snapTo(wx), y: snapTo(wy) };
+        if (!drainPts.length || dist(drainPts[drainPts.length - 1].x, drainPts[drainPts.length - 1].y, pt.x, pt.y) > 0.01)
+          setDrainPts((points) => [...points, { x: pt.x, y: pt.y, ...(pt.anchor ? { anchor: pt.anchor } : {}) }]);
+        return;
+      }
 
       if (mode === "draw") {
         commitWallPoint(snapPreview(start, wx, wy, e.altKey));
@@ -239,7 +289,7 @@ export function useEditorInteractions({ doc, apply, pushUndo, doUndo: undo1, doR
       }
       if (mode === "area") {
         if (areaMode === "pick") {
-          const poly = detectRegion(walls, wx, wy);
+          const poly = detectClearRegion(walls, wx, wy);
           if (poly) {
             const n = areas.length + 1;
             apply((d) => {
@@ -247,7 +297,7 @@ export function useEditorInteractions({ doc, apply, pushUndo, doUndo: undo1, doR
               return d;
             });
           } else {
-            showToast("No enclosed wall loop found here — close the loop or use Trace.");
+            showToast("Could not resolve a clear interior here — check the wall loop or use Trace.");
           }
         } else {
           commitTracePoint(snapPreview(tracePts.length ? tracePts[tracePts.length - 1] : null, wx, wy, e.altKey));
@@ -287,7 +337,7 @@ export function useEditorInteractions({ doc, apply, pushUndo, doUndo: undo1, doR
         beginPan(sx, sy);
       }
     },
-    [svgPoint, beginPan, tf, mode, areaMode, rulerPt, pendingWin, toWorld, commitWallPoint, snapPreview, start, apply, snapTo, padSpec, winSpec, walls, areas, sel, doc, hitTest, closeTrace, commitTracePoint, tracePts, showToast]
+    [svgPoint, beginPan, tf, mode, areaMode, rulerPt, pendingWin, toWorld, commitWallPoint, snapPreview, start, apply, snapTo, padSpec, winSpec, walls, areas, sel, doc, hitTest, closeTrace, commitTracePoint, tracePts, showToast, drainPts, finishDrain]
   );
 
   const onMouseMove = useCallback(
@@ -354,13 +404,14 @@ export function useEditorInteractions({ doc, apply, pushUndo, doUndo: undo1, doR
       }
 
       if (mode === "draw") setSnapInfo(snapPreview(start, wx, wy, e.altKey));
+      else if (mode === "drain") setSnapInfo(snapToWallFace(wx, wy, walls, 12 / tf.scale) || { x: snapTo(wx), y: snapTo(wy), type: "grid" });
       else if (mode === "ruler") setSnapInfo(snapPreview(rulerPt, wx, wy, e.altKey));
       else if (mode === "area" && areaMode === "trace")
         setSnapInfo(snapPreview(tracePts.length ? tracePts[tracePts.length - 1] : null, wx, wy, e.altKey));
       else if (mode === "window") setSnapInfo(pendingWin ? null : findWallSnap(wx, wy, walls, Math.max(16 / tf.scale, 2)));
       else setSnapInfo(null);
     },
-    [svgPoint, updatePan, toWorld, tf.scale, snapTo, walls, setDoc, mode, snapPreview, start, rulerPt, areaMode, tracePts, pendingWin]
+    [svgPoint, updatePan, toWorld, tf.scale, snapTo, walls, setDoc, mode, snapPreview, start, rulerPt, areaMode, tracePts, pendingWin, drainPts]
   );
 
   const onMouseUp = useCallback(() => {
@@ -380,16 +431,23 @@ export function useEditorInteractions({ doc, apply, pushUndo, doUndo: undo1, doR
     if (!sel) return;
     apply((d) => {
       if (sel.type === "wall") {
+        // Freeze points at their current visible positions before removing the
+        // host wall, so its deleted anchors never jump back to old coordinates.
+        d.drains = (d.drains || []).map((run) => {
+          const visible = drains.find((item) => item.id === run.id);
+          return { ...run, pts: run.pts.map((p, i) => p.anchor?.wallId === sel.id ? { x: visible.pts[i].x, y: visible.pts[i].y } : p) };
+        });
         d.walls = d.walls.filter((w) => w.id !== sel.id);
         d.windows = d.windows.filter((w) => w.wallId !== sel.id);
       } else if (sel.type === "pad") d.pads = d.pads.filter((p) => p.id !== sel.id);
       else if (sel.type === "window") d.windows = d.windows.filter((w) => w.id !== sel.id);
       else if (sel.type === "area") d.areas = d.areas.filter((a) => a.id !== sel.id);
       else if (sel.type === "dim") d.dims = (d.dims || []).filter((m) => m.id !== sel.id);
+      else if (sel.type === "drain") d.drains = (d.drains || []).filter((m) => m.id !== sel.id);
       return d;
     });
     setSel(null);
-  }, [sel, apply]);
+  }, [sel, apply, drains]);
 
   // ---------- keyboard ----------
   useEffect(() => {
@@ -408,10 +466,13 @@ export function useEditorInteractions({ doc, apply, pushUndo, doUndo: undo1, doR
         return;
       }
       if (e.key === "Escape") {
+        setDrainPts([]);
         setStart(null); setRunStart(null); setTracePts([]); setRulerPt(null); setPendingWin(null); setTyped("");
+        runWallIdsRef.current = [];
         setSel(null); setConfirmClear(false); setModal(null);
         return;
       }
+      if (mode === "drain" && e.key === "Enter") { e.preventDefault(); finishDrain(); return; }
       if ((e.key === "Delete" || e.key === "Backspace") && mode === "select" && sel) {
         e.preventDefault();
         deleteSel();
@@ -442,11 +503,13 @@ export function useEditorInteractions({ doc, apply, pushUndo, doUndo: undo1, doR
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [mode, areaMode, start, tracePts, typed, snapInfo, mouse, sel, doUndo, doRedo, commitWallPoint, commitTracePoint, closeTrace, deleteSel]);
+  }, [mode, areaMode, start, tracePts, typed, snapInfo, mouse, sel, doUndo, doRedo, commitWallPoint, commitTracePoint, closeTrace, deleteSel, finishDrain]);
 
   // mode switching side effects
   useEffect(() => {
     setStart(null); setRunStart(null); setTracePts([]); setRulerPt(null); setPendingWin(null); setTyped("");
+    setDrainPts([]);
+    runWallIdsRef.current = [];
     if (mode !== "select") setSel(null);
     if (mode === "pad") setModal("pad");
     else if (mode === "window") setModal("window");
@@ -459,57 +522,57 @@ export function useEditorInteractions({ doc, apply, pushUndo, doUndo: undo1, doR
   const selWin = sel && sel.type === "window" ? windows.find((w) => w.id === sel.id) : null;
   const selArea = sel && sel.type === "area" ? areas.find((a) => a.id === sel.id) : null;
   const selDim = sel && sel.type === "dim" ? dims.find((m) => m.id === sel.id) : null;
+  const selDrain = sel && sel.type === "drain" ? drains.find((m) => m.id === sel.id) : null;
 
   const updateWall = useCallback((patch) => selWall && apply((d) => { d.walls = d.walls.map((w) => (w.id === selWall.id ? { ...w, ...patch } : w)); return d; }), [selWall, apply]);
   const updatePad = useCallback((patch) => selPad && apply((d) => { d.pads = d.pads.map((p) => (p.id === selPad.id ? { ...p, ...patch } : p)); return d; }), [selPad, apply]);
   const updateWin = useCallback((patch) => selWin && apply((d) => { d.windows = d.windows.map((w) => (w.id === selWin.id ? { ...w, ...patch } : w)); return d; }), [selWin, apply]);
   const updateArea = useCallback((patch) => selArea && apply((d) => { d.areas = d.areas.map((a) => (a.id === selArea.id ? { ...a, ...patch } : a)); return d; }), [selArea, apply]);
 
+  const selectedWallLengths = selWall ? wallFaceLengths(selWall, walls, (q) => q.thickness / 12) : null;
   const [lenDraft, setLenDraft] = useState("");
-  useEffect(() => setLenDraft(selWall ? formatFtIn(wallLen(selWall)) : ""), [sel, doc]); // eslint-disable-line
+  useEffect(() => {
+    setLenDraft(selWall ? formatFtIn(wallMeasuredLen(selWall, walls, selWall.lengthBasis || "centerline")) : "");
+  }, [sel, doc]); // eslint-disable-line
 
   const setSelLength = useCallback(
     (str) => {
       const len = parseLength(str);
       if (!selWall || !len || len <= 0) return;
-      const cur = wallLen(selWall);
-      if (Math.abs(cur - len) < 1e-6) return;
-      const ux = (selWall.x2 - selWall.x1) / cur, uy = (selWall.y2 - selWall.y1) / cur;
-      const nx = selWall.x1 + ux * len, ny = selWall.y1 + uy * len;
-      const ox = selWall.x2, oy = selWall.y2;
+      const basis = selWall.lengthBasis || "centerline";
+      if (Math.abs(wallMeasuredLen(selWall, walls, basis) - len) < 1e-6) return;
       apply((d) => {
-        d.walls = d.walls.map((w) => {
-          const n = { ...w };
-          if (same(w.x1, w.y1, ox, oy)) { n.x1 = nx; n.y1 = ny; }
-          if (same(w.x2, w.y2, ox, oy)) { n.x2 = nx; n.y2 = ny; }
-          return n;
-        });
+        d.walls = resizeWallToMeasuredLength(selWall.id, d.walls, len, basis);
         return d;
       });
     },
-    [selWall, apply]
+    [selWall, walls, apply]
   );
 
   const clearAll = useCallback(() => {
     if (!confirmClear) { setConfirmClear(true); return; }
     clearDoc();
     setSel(null); setStart(null); setRunStart(null); setTracePts([]);
+    runWallIdsRef.current = [];
     onClear && onClear();
     setConfirmClear(false);
   }, [confirmClear, clearDoc, onClear]);
 
   return {
     mode, setMode, areaMode, setAreaMode: selectAreaMode,
+    drainKind, setDrainKind, drainPts, selDrain,
     curT, setCurT, curD, setCurD, customT, setCustomT, customD, setCustomD,
+    wallLengthBasis, setWallLengthBasis,
     sel, setSel, selWall, selPad, selWin, selArea, selDim,
     confirmClear, toast, showToast,
     padSpec, setPadSpec, winSpec, setWinSpec, modal, setModal,
     pendingWin,
     start, tracePts, rulerPt, showDims, setShowDims, mouse, snapInfo, typed, altFree,
-    lenDraft, setLenDraft, setSelLength,
+    lenDraft, setLenDraft, setSelLength, selectedWallLengths,
     onMouseDown, onMouseMove, onMouseUp,
     deleteSel, clearAll,
     updateWall, updatePad, updateWin, updateArea,
     doUndo, doRedo,
   };
 }
+

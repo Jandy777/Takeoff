@@ -94,26 +94,161 @@ export function wallPolygon(w, allWalls, widthOf) {
   return [ca[0], cb[1], cb[0], ca[1]];
 }
 
+// Snap to the actual wall faces (including their mitered ends), not the
+// centerline, so a partial drain run can start or end anywhere along a face.
+export function snapToWallFace(x, y, walls, tolerance) {
+  let best = null, bestDistance = tolerance;
+  for (const w of walls) {
+    const poly = wallPolygon(w, walls, (q) => q.thickness / 12);
+    if (!poly) continue;
+    for (const [index, corner] of poly.entries()) {
+      const distance = dist(x, y, corner.x, corner.y);
+      if (distance < bestDistance) { best = { ...corner, type: "wall corner", anchor: { wallId: w.id, corner: index } }; bestDistance = distance; }
+    }
+  }
+  if (best) return best;
+  for (const w of walls) {
+    const poly = wallPolygon(w, walls, (q) => q.thickness / 12);
+    if (!poly) continue;
+    for (const [start, end] of [[0, 1], [3, 2]]) {
+      const a = poly[start], b = poly[end];
+      const dx = b.x - a.x, dy = b.y - a.y;
+      const length2 = dx * dx + dy * dy;
+      if (!length2) continue;
+      const t = Math.max(0, Math.min(1, ((x - a.x) * dx + (y - a.y) * dy) / length2));
+      const candidate = { x: a.x + dx * t, y: a.y + dy * t, type: "wall face", anchor: { wallId: w.id, start, end, t } };
+      const distance = dist(x, y, candidate.x, candidate.y);
+      if (distance < bestDistance) { best = candidate; bestDistance = distance; }
+    }
+  }
+  return best;
+}
+
+// Resolve saved wall-relative anchors for every view and quantity calculation.
+// Unattached points (and anchors whose wall is missing) retain their coordinates.
+export function resolveDrainPoint(point, walls) {
+  const anchor = point.anchor;
+  const wall = anchor && walls.find((w) => w.id === anchor.wallId);
+  if (!wall) return point;
+  const poly = wallPolygon(wall, walls, (w) => w.thickness / 12);
+  if (!poly) return point;
+  if (anchor.corner != null && poly[anchor.corner]) return { ...point, ...poly[anchor.corner] };
+  const a = poly[anchor.start], b = poly[anchor.end];
+  if (!a || !b || !Number.isFinite(anchor.t)) return point;
+  return { ...point, x: a.x + (b.x - a.x) * anchor.t, y: a.y + (b.y - a.y) * anchor.t };
+}
+
+export function resolveDrainRuns(drains, walls) {
+  return (drains || []).map((drain) => ({ ...drain, pts: drain.pts.map((point) => resolveDrainPoint(point, walls)) }));
+}
+
+// Convert a closed run whose entered vertices describe a wall face into the
+// centerline geometry used by the rest of the editor. For an outside-face
+// run we offset toward the enclosed region; for an inside-face run we offset
+// away from it. Adjacent offset lines are intersected so mitered corners stay
+// exact, including mixed wall thicknesses and non-square angles.
+export function centerlineClosedWallRun(runWalls, basis = "outside") {
+  if (basis === "centerline" || runWalls.length < 3) return runWalls.map((w) => ({ ...w }));
+  const vertices = runWalls.map((w) => ({ x: w.x1, y: w.y1 }));
+  const area = shoelace(vertices);
+  if (Math.abs(area) < 1e-6) return runWalls.map((w) => ({ ...w }));
+  const interiorSide = area > 0 ? 1 : -1;
+  const towardInterior = basis === "outside" ? 1 : -1;
+  const lines = runWalls.map((w, i) => {
+    const a = vertices[i], b = vertices[(i + 1) % vertices.length];
+    const len = dist(a.x, a.y, b.x, b.y);
+    if (len < 0.01) return null;
+    const d = { x: (b.x - a.x) / len, y: (b.y - a.y) / len };
+    const n = rot90(d);
+    const offset = (w.thickness / 24) * interiorSide * towardInterior;
+    return { p: { x: a.x + n.x * offset, y: a.y + n.y * offset }, d };
+  });
+  if (lines.some((line) => !line)) return runWalls.map((w) => ({ ...w }));
+  const centers = lines.map((line, i) => {
+    const prev = lines[(i - 1 + lines.length) % lines.length];
+    return lineIntersect(prev.p, prev.d, line.p, line.d) || line.p;
+  });
+  return runWalls.map((w, i) => ({
+    ...w,
+    x1: centers[i].x,
+    y1: centers[i].y,
+    x2: centers[(i + 1) % centers.length].x,
+    y2: centers[(i + 1) % centers.length].y,
+  }));
+}
+
+export function wallFaceLengths(w, allWalls, widthOf) {
+  const centerline = wallLen(w);
+  if (centerline < 0.01) return { outside: centerline, centerline, inside: centerline, resolved: false };
+  const halfW = widthOf(w) / 2;
+  if (halfW < 0.001) return { outside: centerline, centerline, inside: centerline, resolved: false };
+  const d = { x: (w.x2 - w.x1) / centerline, y: (w.y2 - w.y1) / centerline };
+  const n = rot90(d);
+  const mx = (w.x1 + w.x2) / 2, my = (w.y1 + w.y2) / 2;
+  const probe = Math.max(0.01, halfW * 0.25);
+  const plusIn = Boolean(detectRegion(allWalls, mx + n.x * probe, my + n.y * probe));
+  const minusIn = Boolean(detectRegion(allWalls, mx - n.x * probe, my - n.y * probe));
+  if (plusIn === minusIn) return { outside: centerline, centerline, inside: centerline, resolved: false };
+  const ca = endCorners({ x: w.x1, y: w.y1 }, d, halfW, allWalls, w, widthOf);
+  const cb = endCorners({ x: w.x2, y: w.y2 }, { x: -d.x, y: -d.y }, halfW, allWalls, w, widthOf);
+  const plusLen = dist(ca[0].x, ca[0].y, cb[1].x, cb[1].y);
+  const minusLen = dist(ca[1].x, ca[1].y, cb[0].x, cb[0].y);
+  return plusIn
+    ? { outside: minusLen, centerline, inside: plusLen, resolved: true, interiorSide: 1 }
+    : { outside: plusLen, centerline, inside: minusLen, resolved: true, interiorSide: -1 };
+}
+
+export function wallMeasuredLen(w, allWalls, basis = "centerline", widthOf = (q) => q.thickness / 12) {
+  return wallFaceLengths(w, allWalls, widthOf)[basis] ?? wallLen(w);
+}
+
 // Length along a wall's exterior face (the mitered outside edge), used as the
 // default dimension label. "Outside" is whichever face is farther from the
 // enclosed interior when the wall is part of a closed loop; walls that
 // aren't part of one (nothing to be "outside" of) fall back to centerline length.
 export function wallOutsideLen(w, allWalls, widthOf) {
-  const len = wallLen(w);
-  if (len < 0.01) return len;
-  const halfW = widthOf(w) / 2;
-  if (halfW < 0.001) return len;
-  const d = { x: (w.x2 - w.x1) / len, y: (w.y2 - w.y1) / len };
-  const n = rot90(d);
-  const mx = (w.x1 + w.x2) / 2, my = (w.y1 + w.y2) / 2;
-  const eps = 0.01;
-  const plusIn = detectRegion(allWalls, mx + n.x * eps, my + n.y * eps);
-  const minusIn = detectRegion(allWalls, mx - n.x * eps, my - n.y * eps);
-  if (!plusIn === !minusIn) return len; // both or neither enclosed — no clear outside face
-  const ca = endCorners({ x: w.x1, y: w.y1 }, d, halfW, allWalls, w, widthOf);
-  const cb = endCorners({ x: w.x2, y: w.y2 }, { x: -d.x, y: -d.y }, halfW, allWalls, w, widthOf);
-  // "+n" side is ca[0]-cb[1]; "-n" side is ca[1]-cb[0] (see wallPolygon above).
-  return plusIn ? dist(ca[1].x, ca[1].y, cb[0].x, cb[0].y) : dist(ca[0].x, ca[0].y, cb[1].x, cb[1].y);
+  return wallFaceLengths(w, allWalls, widthOf).outside;
+}
+
+// Resize a wall by the dimension basis the estimator is editing. The endpoint
+// cluster at x2/y2 moves together, preserving connected corners. Face lengths
+// are solved iteratively because miter geometry may involve mixed thicknesses
+// or angled walls rather than a simple thickness subtraction.
+export function resizeWallToMeasuredLength(wallId, allWalls, target, basis = "centerline") {
+  const original = allWalls.find((w) => w.id === wallId);
+  if (!original || target <= 0) return allWalls;
+  const current = wallLen(original);
+  if (current < 0.01) return allWalls;
+  const ux = (original.x2 - original.x1) / current, uy = (original.y2 - original.y1) / current;
+  const ox = original.x2, oy = original.y2;
+  const moveToCenterlineLength = (length) => {
+    const safe = Math.max(0.05, length);
+    const nx = original.x1 + ux * safe, ny = original.y1 + uy * safe;
+    return allWalls.map((w) => {
+      const next = { ...w };
+      if (same(w.x1, w.y1, ox, oy)) { next.x1 = nx; next.y1 = ny; }
+      if (same(w.x2, w.y2, ox, oy)) { next.x2 = nx; next.y2 = ny; }
+      return next;
+    });
+  };
+  if (basis === "centerline") return moveToCenterlineLength(target);
+
+  let guess = Math.max(0.05, current + target - wallMeasuredLen(original, allWalls, basis));
+  let best = allWalls;
+  for (let i = 0; i < 12; i++) {
+    const candidate = moveToCenterlineLength(guess);
+    const candidateWall = candidate.find((w) => w.id === wallId);
+    const measured = wallMeasuredLen(candidateWall, candidate, basis);
+    best = candidate;
+    const error = measured - target;
+    if (Math.abs(error) < 1 / 1200) break;
+    const step = Math.max(1 / 1200, guess * 0.0001);
+    const stepped = moveToCenterlineLength(guess + step);
+    const steppedWall = stepped.find((w) => w.id === wallId);
+    const slope = (wallMeasuredLen(steppedWall, stepped, basis) - measured) / step;
+    guess = Math.max(0.05, guess - error / (Math.abs(slope) > 1e-5 ? slope : 1));
+  }
+  return best;
 }
 
 // Plan polygon for the piece of a wall between stations s0..s1 (ft along the wall).
@@ -206,6 +341,49 @@ export function detectRegion(walls, px, py) {
   return best ? best.map((p) => ({ x: p.x, y: p.y })) : null;
 }
 
+// Offset each boundary of the detected centerline face into the room by that
+// wall's half-thickness. Intersect neighboring offsets to obtain clear corners.
+export function detectClearRegion(walls, px, py) {
+  const loop = detectRegion(walls, px, py);
+  if (!loop) return null;
+  const orientation = Math.sign(shoelace(loop));
+  const lines = loop.map((a, i) => {
+    const b = loop[(i + 1) % loop.length];
+    const matching = walls.filter((w) =>
+      (same(w.x1, w.y1, a.x, a.y) && same(w.x2, w.y2, b.x, b.y)) ||
+      (same(w.x2, w.y2, a.x, a.y) && same(w.x1, w.y1, b.x, b.y))
+    );
+    if (matching.length !== 1 || !(matching[0].thickness > 0)) return null;
+    const length = dist(a.x, a.y, b.x, b.y);
+    if (length < 0.01) return null;
+    const d = { x: (b.x - a.x) / length, y: (b.y - a.y) / length };
+    const offset = matching[0].thickness / 24 * orientation;
+    return { p: { x: a.x - d.y * offset, y: a.y + d.x * offset }, d };
+  });
+  if (lines.some((line) => !line)) return null;
+  const clear = lines.map((line, i) => {
+    const prev = lines[(i - 1 + lines.length) % lines.length];
+    const intersection = lineIntersect(prev.p, prev.d, line.p, line.d);
+    if (intersection) return intersection;
+    // Collinear segments with the same wall face share a valid corner.
+    const cross = (line.p.x - prev.p.x) * prev.d.y - (line.p.y - prev.p.y) * prev.d.x;
+    return Math.abs(cross) < 1e-6 ? line.p : null;
+  });
+  if (clear.some((p) => !p) || Math.sign(shoelace(clear)) !== orientation || !pointInPoly(px, py, clear)) return null;
+  // Reject self-crossing offsets instead of reporting a misleading area for
+  // an area too narrow or complex for this simple boundary construction.
+  for (let i = 0; i < clear.length; i++) {
+    const a = clear[i], b = clear[(i + 1) % clear.length];
+    for (let j = i + 1; j < clear.length; j++) {
+      if (j === i + 1 || (i === 0 && j === clear.length - 1)) continue;
+      const c = clear[j], d = clear[(j + 1) % clear.length];
+      const cross = (p, q, r) => (q.x - p.x) * (r.y - p.y) - (q.y - p.y) * (r.x - p.x);
+      if (cross(a, b, c) * cross(a, b, d) < 0 && cross(c, d, a) * cross(c, d, b) < 0) return null;
+    }
+  }
+  return clear;
+}
+
 // nearest wall snap for windows: given a world point and the wall list, find the
 // closest point-on-wall within tolerance (tol is in world ft).
 export function findWallSnap(wx, wy, walls, tol) {
@@ -229,11 +407,12 @@ export function findWallSnap(wx, wy, walls, tol) {
 
 // Collects the world-space points that should be framed by "Fit view":
 // wall endpoints, pad footprints, and traced area outlines.
-export function collectFitPoints({ walls, pads, areas }) {
+export function collectFitPoints({ walls, pads, areas, drains = [] }) {
   const pts = [];
   walls.forEach((w) => { pts.push([w.x1, w.y1], [w.x2, w.y2]); });
   pads.forEach((p) => { pts.push([p.x - p.w / 24, p.y - p.l / 24], [p.x + p.w / 24, p.y + p.l / 24]); });
   areas.forEach((a) => a.pts.forEach((p) => pts.push([p.x, p.y])));
+  drains.forEach((d) => d.pts.forEach((p) => pts.push([p.x, p.y])));
   return pts;
 }
 
@@ -256,3 +435,4 @@ export function windowPose(win, walls) {
   }
   return { x: win.x, y: win.y, ang: win.ang || 0, thickness: 8, depth: 8, footH: 8 };
 }
+

@@ -9,8 +9,10 @@ export function TakeoffPanel({
   selWall, selPad, selWin, selArea, selDim,
   updateWall, updatePad, updateWin, updateArea, deleteSel,
   lenDraft, setLenDraft, setSelLength,
+  selectedWallLengths,
+  selDrain,
 }) {
-  const hasDoc = Boolean(takeoff.wallRows.length || takeoff.padRows.length || takeoff.winRows.length || takeoff.areaRows.length);
+  const hasDoc = Boolean(takeoff.wallRows.length || takeoff.padRows.length || takeoff.winRows.length || takeoff.areaRows.length || takeoff.drainRows.length);
   const onSelectColor = (key, color) => setRowColors((c) => ({ ...c, [key]: color }));
   const rowProps = (key) => ({
     active: soloSet.has(key), dimmed: soloSet.size > 0 && !soloSet.has(key),
@@ -39,7 +41,7 @@ export function TakeoffPanel({
               <TakeoffRow key={r.key} rowKey={r.key} {...rowProps(r.key)}
                 main={`${r.thickness}" × ${formatFtIn(r.depth)} wall`}
                 value={formatFtIn(r.len)}
-                sub={`footing ${r.fw}" × ${r.fh}"`}
+                sub={`${r.basis === "outside" ? "outside-face" : r.basis === "inside" ? "inside-face" : "centerline"} LF · footing ${r.fw}" × ${r.fh}"`}
                 subRight={`${r.count} wall${r.count > 1 ? "s" : ""}`}
               />
             ))}
@@ -86,10 +88,21 @@ export function TakeoffPanel({
             </div>
           </>
         )}
+        {takeoff.drainRows.length > 0 && (
+          <>
+            <div style={{ margin: "6px 0 6px" }}><Label>Drain tile — lineal feet</Label></div>
+            {takeoff.drainRows.map((r) => (
+              <div key={r.kind} style={{ display: "flex", justifyContent: "space-between", padding: "6px 10px", fontSize: 12 }}>
+                <span>{r.kind === "exterior" ? "Exterior" : "Interior"}</span>
+                <span style={{ fontFamily: mono }}>{formatFtIn(r.len)}</span>
+              </div>
+            ))}
+          </>
+        )}
 
         {hasDoc && (
           <div style={{ fontSize: 10, color: COLORS.textMut, marginTop: 4, lineHeight: 1.5 }}>
-            LF measured along wall centerlines. Auto-picked SF areas measure to centerlines too. Click any row to isolate it on the plan; click its swatch to recolor.
+            Wall LF follows each wall's selected length basis. Auto-picked SF areas measure between inside wall faces. Click any row to isolate it on the plan; click its swatch to recolor.
           </div>
         )}
       </div>
@@ -105,6 +118,21 @@ export function TakeoffPanel({
             <input value={lenDraft} onChange={(e) => setLenDraft(e.target.value)}
               onKeyDown={(e) => { if (e.key === "Enter") setSelLength(lenDraft); }}
               onBlur={() => setSelLength(lenDraft)} style={inputStyle} />
+            <span style={{ color: COLORS.textMut }}>Basis</span>
+            <div style={{ display: "flex", gap: 4 }}>
+              <Pill active={(selWall.lengthBasis || "centerline") === "outside"} onClick={() => updateWall({ lengthBasis: "outside" })}>Outside</Pill>
+              <Pill active={(selWall.lengthBasis || "centerline") === "centerline"} onClick={() => updateWall({ lengthBasis: "centerline" })}>Center</Pill>
+              <Pill active={(selWall.lengthBasis || "centerline") === "inside"} onClick={() => updateWall({ lengthBasis: "inside" })}>Inside</Pill>
+            </div>
+            {selectedWallLengths && (
+              <>
+                <span style={{ color: COLORS.textMut }}>Faces</span>
+                <div style={{ fontFamily: mono, fontSize: 11, lineHeight: 1.55, color: COLORS.textMut }}>
+                  Outside {formatFtIn(selectedWallLengths.outside)} · Center {formatFtIn(selectedWallLengths.centerline)} · Inside {formatFtIn(selectedWallLengths.inside)}
+                  {!selectedWallLengths.resolved && <div style={{ color: "#d18b47" }}>Close the wall loop to resolve inside and outside.</div>}
+                </div>
+              </>
+            )}
             <span style={{ color: COLORS.textMut }}>Thickness</span>
             <div style={{ display: "flex", gap: 4 }}>
               {THICKNESS_PRESETS.map((t) => <Pill key={t} active={selWall.thickness === t} onClick={() => updateWall({ thickness: t })}>{t}"</Pill>)}
@@ -208,6 +236,16 @@ export function TakeoffPanel({
           </div>
         </div>
       )}
+      {selDrain && (
+        <div style={{ borderTop: `1px solid ${COLORS.border}`, padding: "12px 14px" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+            <Label>{selDrain.kind === "exterior" ? "Exterior" : "Interior"} drain tile</Label>
+            <button onClick={deleteSel} style={{ background: "transparent", border: `1px solid ${COLORS.border}`, color: "#e07b7b", borderRadius: 6, fontSize: 12, padding: "3px 8px", cursor: "pointer" }}>Delete run</button>
+          </div>
+          <div style={{ fontSize: 10, color: COLORS.textMut, marginTop: 6 }}>Delete and redraw to change the path.</div>
+        </div>
+      )}
     </div>
   );
 }
+

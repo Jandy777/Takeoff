@@ -1,18 +1,19 @@
-import { wallLen, shoelace } from "./geometry";
+import { wallMeasuredLen, shoelace, dist } from "./geometry";
 import { footOf, wallKey, padKey, winKey, areaKey } from "./model";
 
 // Pure rollup of a document's entities into the grouped rows shown in the
 // takeoff panel. Kept free of React so it can be unit tested and reused
 // (e.g. for export/print) without mounting the editor.
-export function computeTakeoff({ walls, pads, windows, areas }) {
+export function computeTakeoff({ walls, pads, windows, areas, drains = [] }) {
   const wallGroups = new Map();
   let totalLF = 0;
   for (const w of walls) {
     const f = footOf(w);
     const key = wallKey(w);
-    const len = wallLen(w);
+    const basis = w.lengthBasis || "centerline";
+    const len = wallMeasuredLen(w, walls, basis);
     totalLF += len;
-    if (!wallGroups.has(key)) wallGroups.set(key, { key, thickness: w.thickness, depth: w.depth, fw: f.w, fh: f.h, len: 0, count: 0 });
+    if (!wallGroups.has(key)) wallGroups.set(key, { key, thickness: w.thickness, depth: w.depth, fw: f.w, fh: f.h, basis, len: 0, count: 0 });
     const g = wallGroups.get(key);
     g.len += len;
     g.count++;
@@ -31,6 +32,11 @@ export function computeTakeoff({ walls, pads, windows, areas }) {
   }
   const areaRows = areas.map((a) => ({ key: areaKey(a), name: a.name, sf: Math.abs(shoelace(a.pts)) }));
   const totalSF = areaRows.reduce((s, r) => s + r.sf, 0);
+  const drainRows = ["exterior", "interior"].map((kind) => {
+    const runs = drains.filter((d) => d.kind === kind);
+    const len = runs.reduce((sum, run) => sum + run.pts.slice(1).reduce((n, p, i) => n + dist(run.pts[i].x, run.pts[i].y, p.x, p.y), 0), 0);
+    return { kind, len, count: runs.length };
+  }).filter((r) => r.count);
   return {
     wallRows: [...wallGroups.values()].sort((a, b) => a.thickness - b.thickness || a.depth - b.depth),
     padRows: [...padGroups.values()].sort((a, b) => a.w - b.w || a.l - b.l),
@@ -38,5 +44,7 @@ export function computeTakeoff({ walls, pads, windows, areas }) {
     areaRows,
     totalLF,
     totalSF,
+    drainRows,
   };
 }
+

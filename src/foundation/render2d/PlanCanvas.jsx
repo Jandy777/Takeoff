@@ -19,6 +19,8 @@ export function PlanCanvas({
   rowColor, shown, showDims,
   mode, areaMode, start, tracePts, rulerPt, pendingWin, mouse, snapInfo,
   curT, curD, winSpec,
+  wallLengthBasis,
+  drainPts, drainKind,
   onMouseDown, onMouseMove, onMouseUp, onWheel,
 }) {
   const { walls, pads, windows, areas, dims } = doc;
@@ -37,6 +39,18 @@ export function PlanCanvas({
       <g>{pads.map((p) => <PadGlyph key={p.id} pad={p} tf={tf} toScreen={toScreen} sel={sel} rowColor={rowColor} shown={shown} />)}</g>
       <g>{windows.map((w) => <WindowGlyph key={w.id} win={w} walls={walls} tf={tf} toScreen={toScreen} sel={sel} rowColor={rowColor} shown={shown} />)}</g>
       <g>{dims.map((m) => <DimGlyph key={m.id} dim={m} toScreen={toScreen} sel={sel} />)}</g>
+      <g>{(doc.drains || []).map((drain) => (
+        <polyline key={drain.id} points={ptsStr(drain.pts, toScreen)} fill="none"
+          stroke={sel?.type === "drain" && sel.id === drain.id ? SEL : drain.kind === "exterior" ? "#1572a1" : "#9a42aa"}
+          strokeWidth={4} strokeDasharray={drain.kind === "interior" ? "7 4" : undefined} strokeLinecap="round" strokeLinejoin="round" />
+      ))}</g>
+      {mode === "drain" && drainPts.length > 0 && (
+        <g>
+          <polyline points={ptsStr(snapInfo ? [...drainPts, snapInfo] : drainPts, toScreen)} fill="none"
+            stroke={drainKind === "exterior" ? "#1572a1" : "#9a42aa"} strokeWidth={3} strokeDasharray="7 4" />
+          {drainPts.map((p, i) => { const [x, y] = toScreen(p.x, p.y); return <circle key={i} cx={x} cy={y} r={4} fill="#fff" stroke="#1572a1" strokeWidth={2} />; })}
+        </g>
+      )}
 
       {/* ruler in-progress preview */}
       {mode === "ruler" && rulerPt && snapInfo && (
@@ -55,14 +69,21 @@ export function PlanCanvas({
       {/* wall drawing preview */}
       {mode === "draw" && start && snapInfo && (
         <WallGlyph
-          wall={{ id: -1, x1: start.x, y1: start.y, x2: snapInfo.x, y2: snapInfo.y, thickness: curT, depth: curD, footing: null }}
+          wall={{ id: -1, x1: start.x, y1: start.y, x2: snapInfo.x, y2: snapInfo.y, thickness: curT, depth: curD, footing: null, lengthBasis: wallLengthBasis }}
           isPreview walls={walls} tf={tf} toScreen={toScreen} sel={sel} rowColor={rowColor} shown={shown} showDims={showDims}
         />
       )}
       {mode === "draw" && start && (() => { const [sx, sy] = toScreen(start.x, start.y); return <circle cx={sx} cy={sy} r={4} fill={SEL} />; })()}
-      {(mode === "draw" || mode === "ruler" || (mode === "area" && areaMode === "trace")) && snapInfo && snapInfo.type === "endpoint" && (() => {
+      {(mode === "draw" || mode === "ruler" || mode === "drain" || (mode === "area" && areaMode === "trace")) && snapInfo && ["endpoint", "wall corner", "wall face"].includes(snapInfo.type) && (() => {
         const [sx, sy] = toScreen(snapInfo.x, snapInfo.y);
-        return <rect x={sx - 6} y={sy - 6} width={12} height={12} fill="none" stroke={SEL} strokeWidth={2} />;
+        const label = snapInfo.type === "wall face" ? "WALL FACE" : "CORNER";
+        return <g pointerEvents="none" aria-label={`${label} snap`}>
+          <circle cx={sx} cy={sy} r={13} fill="rgba(255,255,255,0.9)" stroke={SEL} strokeWidth={3} />
+          <circle cx={sx} cy={sy} r={3.5} fill={SEL} />
+          <path d={`M ${sx - 18} ${sy} h 5 M ${sx + 13} ${sy} h 5 M ${sx} ${sy - 18} v 5 M ${sx} ${sy + 13} v 5`} stroke={SEL} strokeWidth={2} />
+          <rect x={sx + 17} y={sy - 29} width={label === "CORNER" ? 58 : 72} height={20} rx={5} fill="#25313b" />
+          <text x={sx + 23} y={sy - 15} fill="#fff" fontSize={10} fontWeight={700} fontFamily={mono}>{label}</text>
+        </g>;
       })()}
 
       {/* trace preview */}
@@ -138,3 +159,4 @@ export function PlanCanvas({
     </svg>
   );
 }
+

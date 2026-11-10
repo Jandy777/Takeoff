@@ -9,6 +9,7 @@
 # production
 /build
 /dist
+/.tools
 
 # misc
 .DS_Store
@@ -27,3 +28,4 @@ yarn-error.log*
 *.swp
 *.swo
 *~
+

@@ -8,6 +8,8 @@ export function Toolbar({
   showDims, setShowDims,
   curT, setCurT, customT, setCustomT,
   curD, setCurD, customD, setCustomD,
+  wallLengthBasis, setWallLengthBasis,
+  drainKind, setDrainKind, drainPts,
   padSpec, winSpec, setModal,
   doUndo, doRedo, onFit, clearAll, confirmClear,
   view, setView,
@@ -24,12 +26,22 @@ export function Toolbar({
         <Pill active={mode === "window"} onClick={() => setMode("window")}>◫ Window</Pill>
         <Pill active={mode === "area"} onClick={() => setMode("area")}>▱ Sq Ft</Pill>
         <Pill active={mode === "ruler"} onClick={() => setMode("ruler")}>⟷ Ruler</Pill>
+        <Pill active={mode === "drain"} onClick={() => setMode("drain")}>Drain tile</Pill>
       </div>
       {mode === "ruler" && (
         <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
           <Label>Auto wall dims</Label>
           <Pill active={showDims} onClick={() => setShowDims((s) => !s)}>{showDims ? "On" : "Off"}</Pill>
         </div>
+      )}
+      {mode === "drain" && (
+        <label style={{ display: "flex", alignItems: "center", gap: 6 }}>
+          <Label>Drain tile</Label>
+          <select value={drainKind} disabled={drainPts.length > 0} onChange={(e) => setDrainKind(e.target.value)} style={inputStyle}>
+            <option value="exterior">Exterior</option>
+            <option value="interior">Interior</option>
+          </select>
+        </label>
       )}
       {(mode === "draw" || mode === "select") && (
         <>
@@ -50,6 +62,12 @@ export function Toolbar({
               onChange={(e) => { setCustomD(e.target.value); const v = parseLength(e.target.value); if (v && v > 0) setCurD(v); }}
               style={{ ...inputStyle, width: 44, borderColor: !DEPTH_PRESETS.includes(curD) ? COLORS.accent : COLORS.border }}
             />
+          </div>
+          <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+            <Label>Length</Label>
+            <Pill active={wallLengthBasis === "outside"} onClick={() => setWallLengthBasis("outside")} title="Entered dimensions describe the outside face of a closed wall run">Outside</Pill>
+            <Pill active={wallLengthBasis === "centerline"} onClick={() => setWallLengthBasis("centerline")} title="Entered dimensions describe wall centerlines">Center</Pill>
+            <Pill active={wallLengthBasis === "inside"} onClick={() => setWallLengthBasis("inside")} title="Entered dimensions describe the inside face of a closed wall run">Inside</Pill>
           </div>
         </>
       )}
@@ -82,3 +100,4 @@ export function Toolbar({
     </div>
   );
 }
+

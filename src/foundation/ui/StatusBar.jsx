@@ -24,6 +24,8 @@ function hintFor({ mode, start, sel, pendingWin, winSpec, areaMode, rulerPt }) {
         : "Click to trace an outline · type lengths + Enter works too · right-click or click the first point to close";
     case "ruler":
       return rulerPt ? "Click the second point to set the measurement" : "Click two points to measure — dimensions stay on the plan until deleted · right-click exits";
+    case "drain":
+      return "Click anchor points along the drain path · Enter or right-click finishes · Esc cancels";
     default:
       return "";
   }
@@ -39,7 +41,8 @@ export function StatusBar({ view, mouse, snapLabel, altFree, mode, start, sel, p
         </span>
       )}
       {altFree && view === "2d" && <span style={{ color: COLORS.accent }}>snap off — free angle</span>}
-      <span style={{ marginLeft: "auto" }}>{view === "2d" ? hintFor({ mode, start, sel, pendingWin, winSpec, areaMode, rulerPt }) : "3D is view-only — switch to 2D Plan to edit"}</span>
+      <span style={{ marginLeft: "auto" }}>{view === "2d" ? hintFor({ mode, start, sel, pendingWin, winSpec, areaMode, rulerPt }) : "3D is view-only · Drain tile elevation is illustrative"}</span>
     </div>
   );
 }
+

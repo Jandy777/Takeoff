@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import { wallLen, wallPolygon, wallSubPoly, openingHFor, windowPose } from "../geometry";
+import { wallLen, wallPolygon, wallSubPoly, openingHFor, windowPose, pointSegDist } from "../geometry";
 import { footOf, wallKey, padKey, winKey, areaKey } from "../model";
 import { shade } from "../color";
 
@@ -17,7 +17,7 @@ const cInt = (hex) => parseInt(hex.slice(1), 16);
 // Tears down and rebuilds every mesh in `group` from the current document.
 // Pure with respect to React: only reads doc/sel/shown/rowColor, only writes
 // into the THREE.Group handed to it.
-export function buildScene(group, { walls, pads, windows, areas }, sel, shown, rowColor) {
+export function buildScene(group, { walls, pads, windows, areas, drains = [] }, sel, shown, rowColor) {
   while (group.children.length) {
     const c = group.children[0];
     group.remove(c);
@@ -92,6 +92,29 @@ export function buildScene(group, { walls, pads, windows, areas }, sel, shown, r
     }
   });
 
+  // Drain elevations are illustrative: position each traced segment at the
+  // nearest wall's footing level, since the document stores no pipe elevation.
+  drains.forEach((drain) => {
+    const color = sel?.type === "drain" && sel.id === drain.id ? SELECTED_COLOR : drain.kind === "exterior" ? "#1572a1" : "#9a42aa";
+    for (let i = 1; i < drain.pts.length; i++) {
+      const a = drain.pts[i - 1], b = drain.pts[i];
+      const length = Math.hypot(b.x - a.x, b.y - a.y);
+      if (length < 0.001) continue;
+      const mx = (a.x + b.x) / 2, my = (a.y + b.y) / 2;
+      let nearest = null, distance = Infinity;
+      for (const wall of walls) {
+        const d = pointSegDist(mx, my, wall.x1, wall.y1, wall.x2, wall.y2);
+        if (d < distance) { distance = d; nearest = wall; }
+      }
+      const elevation = nearest ? topY - nearest.depth + 0.18 : 0.18;
+      const geometry = new THREE.CylinderGeometry(0.16, 0.16, length, 12);
+      const mesh = new THREE.Mesh(geometry, new THREE.MeshLambertMaterial({ color: cInt(color) }));
+      mesh.position.set(mx, elevation, my);
+      mesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), new THREE.Vector3((b.x - a.x) / length, 0, (b.y - a.y) / length));
+      group.add(mesh);
+    }
+  });
+
   pads.forEach((p) => {
     const key = padKey(p);
     if (!shown(key)) return;
@@ -153,3 +176,4 @@ export function buildScene(group, { walls, pads, windows, areas }, sel, shown, r
     group.add(mesh);
   });
 }
+

@@ -1,6 +1,6 @@
-import React, { useState } from "react";
+import React, { useMemo, useState } from "react";
 import { COLORS } from "./foundation/constants";
-import { collectFitPoints } from "./foundation/geometry";
+import { collectFitPoints, resolveDrainRuns } from "./foundation/geometry";
 import { useUndoableDoc } from "./foundation/hooks/useUndoableDoc";
 import { useViewport } from "./foundation/hooks/useViewport";
 import { useRowVisibility } from "./foundation/hooks/useRowVisibility";
@@ -23,14 +23,14 @@ export default function FoundationTakeoff() {
   const [view, setView] = useState("2d");
 
   const docState = useUndoableDoc();
-  const { doc, setDoc } = docState;
+  const doc = useMemo(() => ({ ...docState.doc, drains: resolveDrainRuns(docState.doc.drains, docState.doc.walls) }), [docState.doc]);
 
   const viewport = useViewport(view);
   const visibility = useRowVisibility();
   const snapping = useSnapping(doc.walls, viewport.tf.scale);
 
   const editor = useEditorInteractions(
-    { ...docState, onClear: () => visibility.setSolo([]) },
+    { ...docState, doc, onClear: () => visibility.setSolo([]) },
     viewport,
     snapping
   );
@@ -48,6 +48,8 @@ export default function FoundationTakeoff() {
         showDims={editor.showDims} setShowDims={editor.setShowDims}
         curT={editor.curT} setCurT={editor.setCurT} customT={editor.customT} setCustomT={editor.setCustomT}
         curD={editor.curD} setCurD={editor.setCurD} customD={editor.customD} setCustomD={editor.setCustomD}
+        wallLengthBasis={editor.wallLengthBasis} setWallLengthBasis={editor.setWallLengthBasis}
+        drainKind={editor.drainKind} setDrainKind={editor.setDrainKind} drainPts={editor.drainPts}
         padSpec={editor.padSpec} winSpec={editor.winSpec} setModal={editor.setModal}
         doUndo={editor.doUndo} doRedo={editor.doRedo} onFit={onFit}
         clearAll={editor.clearAll} confirmClear={editor.confirmClear}
@@ -66,6 +68,8 @@ export default function FoundationTakeoff() {
               start={editor.start} tracePts={editor.tracePts} rulerPt={editor.rulerPt}
               pendingWin={editor.pendingWin} mouse={editor.mouse} snapInfo={editor.snapInfo}
               curT={editor.curT} curD={editor.curD} winSpec={editor.winSpec}
+              wallLengthBasis={editor.wallLengthBasis}
+              drainPts={editor.drainPts} drainKind={editor.drainKind}
               onMouseDown={editor.onMouseDown} onMouseMove={editor.onMouseMove} onMouseUp={editor.onMouseUp}
               onWheel={viewport.onWheel}
             />
@@ -88,6 +92,8 @@ export default function FoundationTakeoff() {
           updateWall={editor.updateWall} updatePad={editor.updatePad} updateWin={editor.updateWin} updateArea={editor.updateArea}
           deleteSel={editor.deleteSel}
           lenDraft={editor.lenDraft} setLenDraft={editor.setLenDraft} setSelLength={editor.setSelLength}
+          selectedWallLengths={editor.selectedWallLengths}
+          selDrain={editor.selDrain}
         />
       </div>
 
@@ -105,3 +111,4 @@ export default function FoundationTakeoff() {
     </div>
   );
 }
+

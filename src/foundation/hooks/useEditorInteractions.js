@@ -3,7 +3,7 @@ import {
   dist, same, clone, pointSegDist, wallLen, formatFtIn, parseLength,
   findWallSnap, windowPose, pointInPoly, detectClearRegion, centerlineClosedWallRun,
   wallFaceLengths, wallMeasuredLen, resizeWallToMeasuredLength,
-  snapToWallFace, ledgeOnWallFace,
+  snapToWallFace, ledgeOnWallFace, slabCorners, wingFootprint,
 } from "../geometry";
 import { nid, footOf } from "../model";
 import { selectInBox, selected, toggleSelection, moveSelection, deleteSelection } from "../selection";
@@ -22,6 +22,7 @@ export function useEditorInteractions({ doc, apply, pushUndo, doUndo: undo1, doR
   const dims = doc.dims || [];
   const drains = doc.drains || [];
   const ledges = doc.ledges || [];
+  const slabs = doc.slabs || [], texts = doc.texts || [], wings = doc.wings || [];
 
   const [mode, setMode] = useState("draw"); // draw | select | pad | window | area | ruler
   const [areaMode, setAreaMode] = useState("pick"); // pick | trace
@@ -42,6 +43,8 @@ export function useEditorInteractions({ doc, apply, pushUndo, doUndo: undo1, doR
   const [toast, setToast] = useState(null);
 
   const [padSpec, setPadSpec] = useState({ w: 24, l: 24, d: 12 }); // inches
+  const [slabSpec, setSlabSpec] = useState({ w: 24, l: 120, d: 12 });
+  const [textSpec, setTextSpec] = useState({ text: "Note", size: 6, color: "#20262d" });
   const [winSpec, setWinSpec] = useState({ kind: "peek", width: 32 }); // inches
   const [modal, setModal] = useState(null); // 'pad' | 'window' | null
   const [pendingWin, setPendingWin] = useState(null); // well placement step 1 done, awaiting direction click
@@ -164,6 +167,9 @@ export function useEditorInteractions({ doc, apply, pushUndo, doUndo: undo1, doR
   // ---------- hit testing ----------
   const hitTest = useCallback(
     (wx, wy) => {
+      for (const t of texts) if (wx >= t.x && wx <= t.x + t.text.length * t.size / 20 && wy >= t.y - t.size / 12 && wy <= t.y + t.size / 48) return { type: "text", id: t.id };
+      for (const wing of wings) { const poly = wingFootprint(wing, walls), p = windowPose(wing, walls); if ((poly.length && pointInPoly(wx, wy, poly)) || (p && dist(wx, wy, p.x, p.y) < 12 / tf.scale)) return { type: "wing", id: wing.id }; }
+      for (const s of slabs) if (pointInPoly(wx, wy, slabCorners(s))) return { type: "slab", id: s.id };
       for (const ledge of ledges) {
         if (ledge.pts.length === 2 && pointSegDist(wx, wy, ledge.pts[0].x, ledge.pts[0].y, ledge.pts[1].x, ledge.pts[1].y) < 7 / tf.scale) return { type: "ledge", id: ledge.id };
       }
@@ -195,7 +201,7 @@ export function useEditorInteractions({ doc, apply, pushUndo, doUndo: undo1, doR
       }
       return null;
     },
-    [ledges, drains, dims, windows, walls, pads, areas, tf.scale]
+    [texts, wings, slabs, ledges, drains, dims, windows, walls, pads, areas, tf.scale]
   );
 
   // ---------- mouse ----------
@@ -215,11 +221,28 @@ export function useEditorInteractions({ doc, apply, pushUndo, doUndo: undo1, doR
         else if (mode === "ruler") { rulerPt ? setRulerPt(null) : setMode("select"); }
         else if (mode === "window") { pendingWin ? setPendingWin(null) : setMode("select"); }
         else if (mode === "pad") setMode("select");
+        else if (["slab", "text", "wing"].includes(mode)) setMode("select");
         e.preventDefault();
         return;
       }
       if (e.button !== 0) return;
       const [wx, wy] = toWorld(sx, sy);
+
+      if (mode === "slab") {
+        apply((d) => { d.slabs = [...(d.slabs || []), { id: nid(), x: snapTo(wx), y: snapTo(wy), rotation: 0, ...slabSpec }]; return d; });
+        return;
+      }
+      if (mode === "text") {
+        if (!textSpec.text.trim()) { showToast("Enter text before placing it."); return; }
+        apply((d) => { d.texts = [...(d.texts || []), { id: nid(), x: snapTo(wx), y: snapTo(wy), text: textSpec.text, size: textSpec.size, color: textSpec.color }]; return d; });
+        return;
+      }
+      if (mode === "wing") {
+        const snap = findWallSnap(wx, wy, walls, 16 / tf.scale);
+        if (!snap) { showToast("Click on a wall to place a wing arm."); return; }
+        apply((d) => { d.wings = [...(d.wings || []), { id: nid(), wallId: snap.wallId, t: snap.t, side: snap.side }]; return d; });
+        return;
+      }
 
       if (mode === "ledge") {
         const pt = snapToWallFace(wx, wy, walls, 12 / tf.scale);
@@ -378,7 +401,7 @@ export function useEditorInteractions({ doc, apply, pushUndo, doUndo: undo1, doR
         }
         setGroupSelection([]);
         setSel(hit);
-        if (hit.type === "pad" || hit.type === "window") {
+        if (["pad", "window", "slab", "text", "wing"].includes(hit.type)) {
           dragEntRef.current = { ...hit, snapshot: clone(doc), moved: false };
         }
       } else {
@@ -388,7 +411,7 @@ export function useEditorInteractions({ doc, apply, pushUndo, doUndo: undo1, doR
         setSelectionBox({ a: { x: wx, y: wy }, b: { x: wx, y: wy } });
       }
     },
-    [svgPoint, beginPan, tf, mode, areaMode, rulerPt, pendingWin, toWorld, commitWallPoint, snapPreview, start, apply, snapTo, padSpec, winSpec, walls, areas, sel, doc, hitTest, closeTrace, commitTracePoint, tracePts, showToast, drainPts, finishDrain, ledgeStart, ledgeSize, ledgeKind, ledges, groupSelection]
+    [svgPoint, beginPan, tf, mode, areaMode, rulerPt, pendingWin, toWorld, commitWallPoint, snapPreview, start, apply, snapTo, padSpec, slabSpec, textSpec, winSpec, walls, areas, sel, doc, hitTest, closeTrace, commitTracePoint, tracePts, showToast, drainPts, finishDrain, ledgeStart, ledgeSize, ledgeKind, ledges, groupSelection]
   );
 
   const onMouseMove = useCallback(
@@ -457,6 +480,12 @@ export function useEditorInteractions({ doc, apply, pushUndo, doUndo: undo1, doR
         if (de.type === "pad") {
           const gx = snapTo(wx), gy = snapTo(wy);
           setDoc((d) => ({ ...d, pads: d.pads.map((p) => (p.id === de.id ? { ...p, x: gx, y: gy } : p)) }));
+        } else if (de.type === "slab" || de.type === "text") {
+          const field = de.type === "slab" ? "slabs" : "texts";
+          setDoc((d) => ({ ...d, [field]: (d[field] || []).map((p) => p.id === de.id ? { ...p, x: snapTo(wx), y: snapTo(wy) } : p) }));
+        } else if (de.type === "wing") {
+          const snap = findWallSnap(wx, wy, walls, 16 / tf.scale);
+          if (snap) setDoc((d) => ({ ...d, wings: (d.wings || []).map((p) => p.id === de.id ? { ...p, wallId: snap.wallId, t: snap.t, side: snap.side } : p) }));
         } else if (de.type === "window") {
           const snap = findWallSnap(wx, wy, walls, Math.max(16 / tf.scale, 2));
           setDoc((d) => ({
@@ -530,12 +559,16 @@ export function useEditorInteractions({ doc, apply, pushUndo, doUndo: undo1, doR
         d.walls = d.walls.filter((w) => w.id !== sel.id);
         d.ledges = (d.ledges || []).filter((l) => l.wallId !== sel.id);
         d.windows = d.windows.filter((w) => w.wallId !== sel.id);
+        d.wings = (d.wings || []).filter((w) => w.wallId !== sel.id);
       } else if (sel.type === "pad") d.pads = d.pads.filter((p) => p.id !== sel.id);
       else if (sel.type === "window") d.windows = d.windows.filter((w) => w.id !== sel.id);
       else if (sel.type === "area") d.areas = d.areas.filter((a) => a.id !== sel.id);
       else if (sel.type === "dim") d.dims = (d.dims || []).filter((m) => m.id !== sel.id);
       else if (sel.type === "drain") d.drains = (d.drains || []).filter((m) => m.id !== sel.id);
       else if (sel.type === "ledge") d.ledges = (d.ledges || []).filter((m) => m.id !== sel.id);
+      else if (sel.type === "slab") d.slabs = (d.slabs || []).filter((m) => m.id !== sel.id);
+      else if (sel.type === "text") d.texts = (d.texts || []).filter((m) => m.id !== sel.id);
+      else if (sel.type === "wing") d.wings = (d.wings || []).filter((m) => m.id !== sel.id);
       return d;
     });
     setSel(null);
@@ -608,6 +641,8 @@ export function useEditorInteractions({ doc, apply, pushUndo, doUndo: undo1, doR
     runWallIdsRef.current = [];
     if (mode !== "select") setSel(null);
     if (mode === "pad") setModal("pad");
+    else if (mode === "slab") setModal("slab");
+    else if (mode === "text") setModal("text");
     else if (mode === "window") setModal("window");
     else setModal(null);
   }, [mode]);
@@ -620,6 +655,9 @@ export function useEditorInteractions({ doc, apply, pushUndo, doUndo: undo1, doR
   const selDim = sel && sel.type === "dim" ? dims.find((m) => m.id === sel.id) : null;
   const selDrain = sel && sel.type === "drain" ? drains.find((m) => m.id === sel.id) : null;
   const selLedge = sel && sel.type === "ledge" ? ledges.find((m) => m.id === sel.id) : null;
+  const selSlab = sel && sel.type === "slab" ? slabs.find((m) => m.id === sel.id) : null;
+  const selText = sel && sel.type === "text" ? texts.find((m) => m.id === sel.id) : null;
+  const selWing = sel && sel.type === "wing" ? wings.find((m) => m.id === sel.id) : null;
 
   const updateWall = useCallback((patch) => {
     if (!selWall) return;
@@ -633,6 +671,8 @@ export function useEditorInteractions({ doc, apply, pushUndo, doUndo: undo1, doR
   const updatePad = useCallback((patch) => selPad && apply((d) => { d.pads = d.pads.map((p) => (p.id === selPad.id ? { ...p, ...patch } : p)); return d; }), [selPad, apply]);
   const updateWin = useCallback((patch) => selWin && apply((d) => { d.windows = d.windows.map((w) => (w.id === selWin.id ? { ...w, ...patch } : w)); return d; }), [selWin, apply]);
   const updateArea = useCallback((patch) => selArea && apply((d) => { d.areas = d.areas.map((a) => (a.id === selArea.id ? { ...a, ...patch } : a)); return d; }), [selArea, apply]);
+  const updateSlab = useCallback((patch) => selSlab && apply((d) => { d.slabs = d.slabs.map((v) => v.id === selSlab.id ? { ...v, ...patch } : v); return d; }), [selSlab, apply]);
+  const updateText = useCallback((patch) => selText && apply((d) => { d.texts = d.texts.map((v) => v.id === selText.id ? { ...v, ...patch } : v); return d; }), [selText, apply]);
 
   const selectedWallLengths = selWall ? wallFaceLengths(selWall, walls, (q) => q.thickness / 12) : null;
   const [lenDraft, setLenDraft] = useState("");
@@ -673,6 +713,7 @@ export function useEditorInteractions({ doc, apply, pushUndo, doUndo: undo1, doR
     groupSelection, selectionBox,
     confirmClear, toast, showToast,
     padSpec, setPadSpec, winSpec, setWinSpec, modal, setModal,
+    slabSpec, setSlabSpec, textSpec, setTextSpec, selSlab, selText, selWing, updateSlab, updateText,
     pendingWin,
     start, tracePts, rulerPt, showDims, setShowDims, mouse, snapInfo, typed, altFree,
     lenDraft, setLenDraft, setSelLength, selectedWallLengths,

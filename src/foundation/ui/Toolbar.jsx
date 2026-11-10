@@ -12,6 +12,7 @@ export function Toolbar({
   drainKind, setDrainKind, drainPts,
   ledgeKind, setLedgeKind, ledgeSize, setLedgeSize, ledgeStart,
   padSpec, winSpec, setModal,
+  slabSpec, onPrint,
   doUndo, doRedo, onFit, clearAll, confirmClear,
   view, setView,
 }) {
@@ -24,6 +25,9 @@ export function Toolbar({
         <Pill active={mode === "draw"} onClick={() => setMode("draw")}>✏ Wall</Pill>
         <Pill active={mode === "select"} onClick={() => setMode("select")}>⬚ Select</Pill>
         <Pill active={mode === "pad"} onClick={() => setMode("pad")}>▦ Pad</Pill>
+        <Pill active={mode === "slab"} onClick={() => setMode("slab")}>Thickened slab</Pill>
+        <Pill active={mode === "text"} onClick={() => setMode("text")}>DTEXT</Pill>
+        <Pill active={mode === "wing"} onClick={() => setMode("wing")}>Wing arm</Pill>
         <Pill active={mode === "window"} onClick={() => setMode("window")}>◫ Window</Pill>
         <Pill active={mode === "area"} onClick={() => setMode("area")}>▱ Sq Ft</Pill>
         <Pill active={mode === "ruler"} onClick={() => setMode("ruler")}>⟷ Ruler</Pill>
@@ -97,6 +101,8 @@ export function Toolbar({
           {padSpec.w}"×{padSpec.l}"×{padSpec.d}" — change
         </Pill>
       )}
+      {mode === "slab" && <Pill onClick={() => setModal("slab")}>{slabSpec.w}″×{slabSpec.l}″×{slabSpec.d}″ — change</Pill>}
+      {mode === "text" && <Pill onClick={() => setModal("text")}>Edit text</Pill>}
       {mode === "window" && (
         <Pill onClick={() => setModal("window")} title="Change window type">
           {winSpec.kind === "peek" ? "Peek window" : "Window well"} {winSpec.width}" — change
@@ -106,6 +112,7 @@ export function Toolbar({
         <Pill onClick={doUndo} title="Undo (Ctrl+Z)">↶</Pill>
         <Pill onClick={doRedo} title="Redo (Ctrl+Shift+Z)">↷</Pill>
         <Pill onClick={onFit} title="Zoom to drawing">Fit</Pill>
+        <Pill onClick={onPrint} title="Print both views and takeoff">Print</Pill>
         <Pill onClick={clearAll}>{confirmClear ? "Really clear?" : "Clear"}</Pill>
         <div style={{ width: 1, height: 22, background: COLORS.border, margin: "0 4px" }} />
         <Pill active={view === "2d"} onClick={() => setView("2d")}>2D Plan</Pill>

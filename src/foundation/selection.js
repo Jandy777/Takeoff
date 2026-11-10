@@ -1,6 +1,6 @@
-import { same, windowPose, wallPolygon, pointInPoly } from "./geometry";
+import { same, windowPose, wallPolygon, pointInPoly, slabCorners, wingFootprint } from "./geometry";
 
-const TYPES = { wall: "walls", pad: "pads", window: "windows", area: "areas", dim: "dims", drain: "drains", ledge: "ledges" };
+const TYPES = { wall: "walls", pad: "pads", window: "windows", area: "areas", dim: "dims", drain: "drains", ledge: "ledges", slab: "slabs", text: "texts", wing: "wings" };
 export const selected = (items, type, id) => items.some((item) => item.type === type && item.id === id);
 export function toggleSelection(items, item) {
   return selected(items, item.type, item.id) ? items.filter((s) => s.type !== item.type || s.id !== item.id) : [...items, item];
@@ -42,6 +42,9 @@ export function selectInBox(doc, a, b) {
   for (const m of doc.dims || []) add("dim", m.id, [{ x: m.x1, y: m.y1 }, { x: m.x2, y: m.y2 }]);
   for (const d of doc.drains || []) add("drain", d.id, d.pts);
   for (const l of doc.ledges || []) add("ledge", l.id, l.pts);
+  for (const s of doc.slabs || []) add("slab", s.id, slabCorners(s), true);
+  for (const t of doc.texts || []) add("text", t.id, [{ x: t.x, y: t.y - t.size / 12 }, { x: t.x + t.text.length * t.size / 20, y: t.y }], true);
+  for (const w of doc.wings || []) add("wing", w.id, wingFootprint(w, doc.walls), true);
   return hits;
 }
 
@@ -59,6 +62,7 @@ export function moveSelection(doc, items, dx, dy) {
     if ([ [wall.x1, wall.y1], [wall.x2, wall.y2] ].some(([x, y]) => same(x, y, other.x1, other.y1) || same(x, y, other.x2, other.y2))) return { error: "Select adjoining walls too before moving this group." };
   }
   if (doc.windows.some((w) => has("window", w.id) && w.wallId != null && !has("wall", w.wallId))) return { error: "Select the window's wall too before moving this group." };
+  if ((doc.wings || []).some((w) => has("wing", w.id) && w.wallId != null && !has("wall", w.wallId))) return { error: "Select the wing arm's wall too before moving this group." };
   if ((doc.ledges || []).some((l) => has("ledge", l.id) && !has("wall", l.wallId))) return { error: "Select the ledge's wall too before moving this group." };
   if ((doc.drains || []).some((d) => has("drain", d.id) && d.pts.some((p) => p.anchor && !has("wall", p.anchor.wallId)))) return { error: "Select the walls attached to the drain tile before moving this group." };
   const point = (p) => ({ ...p, x: p.x + dx, y: p.y + dy });
@@ -67,6 +71,9 @@ export function moveSelection(doc, items, dx, dy) {
     ...doc,
     walls: doc.walls.map((w) => has("wall", w.id) ? pair(w) : w),
     pads: doc.pads.map((p) => has("pad", p.id) ? point(p) : p),
+    slabs: (doc.slabs || []).map((p) => has("slab", p.id) ? point(p) : p),
+    texts: (doc.texts || []).map((p) => has("text", p.id) ? point(p) : p),
+    wings: (doc.wings || []).map((p) => has("wing", p.id) && p.wallId == null ? point(p) : p),
     windows: doc.windows.map((w) => has("window", w.id) && w.wallId == null ? point(w) : w),
     areas: doc.areas.map((a) => has("area", a.id) ? { ...a, pts: a.pts.map(point) } : a),
     dims: (doc.dims || []).map((m) => has("dim", m.id) ? pair(m) : m),
@@ -81,6 +88,9 @@ export function deleteSelection(doc, items, resolvedDoc = doc) {
     ...doc,
     walls: doc.walls.filter((w) => !has("wall", w.id)),
     pads: doc.pads.filter((p) => !has("pad", p.id)),
+    slabs: (doc.slabs || []).filter((p) => !has("slab", p.id)),
+    texts: (doc.texts || []).filter((p) => !has("text", p.id)),
+    wings: (doc.wings || []).filter((p) => !has("wing", p.id) && !deletedWalls.has(p.wallId)),
     windows: doc.windows.filter((w) => !has("window", w.id) && !deletedWalls.has(w.wallId)),
     areas: doc.areas.filter((a) => !has("area", a.id)),
     dims: (doc.dims || []).filter((m) => !has("dim", m.id)),

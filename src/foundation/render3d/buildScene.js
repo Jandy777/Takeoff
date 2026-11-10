@@ -1,6 +1,6 @@
 import * as THREE from "three";
 import { wallLen, wallPolygon, wallSubPoly, openingHFor, windowPose, pointSegDist } from "../geometry";
-import { footOf, wallKey, wallColorKey, footingKey, footingColorKey, padKey, winKey, areaKey } from "../model";
+import { footOf, wallKey, wallColorKey, footingKey, footingColorKey, padKey, winKey, areaKey, slabKey } from "../model";
 import { shade } from "../color";
 
 const SELECTED_COLOR = "#ff8a3d";
@@ -17,7 +17,7 @@ const cInt = (hex) => parseInt(hex.slice(1), 16);
 // Tears down and rebuilds every mesh in `group` from the current document.
 // Pure with respect to React: only reads doc/sel/shown/rowColor, only writes
 // into the THREE.Group handed to it.
-export function buildScene(group, { walls, pads, windows, areas, drains = [], ledges = [] }, sel, shown, rowColor) {
+export function buildScene(group, { walls, pads, windows, areas, drains = [], ledges = [], slabs = [], wings = [] }, sel, shown, rowColor) {
   while (group.children.length) {
     const c = group.children[0];
     group.remove(c);
@@ -161,6 +161,40 @@ export function buildScene(group, { walls, pads, windows, areas, drains = [], le
     const geo = new THREE.BoxGeometry(p.w / 12, p.d / 12, p.l / 12);
     const mesh = new THREE.Mesh(geo, new THREE.MeshLambertMaterial({ color: col }));
     mesh.position.set(p.x, p.d / 24, p.y);
+    group.add(mesh);
+  });
+
+  slabs.forEach((s) => {
+    if (!shown(slabKey(s))) return;
+    const geometry = new THREE.BoxGeometry(s.w / 12, s.d / 12, s.l / 12);
+    const mesh = new THREE.Mesh(geometry, new THREE.MeshLambertMaterial({ color: cInt(sel?.type === "slab" && sel.id === s.id ? SELECTED_COLOR : rowColor(slabKey(s))) }));
+    mesh.position.set(s.x, s.d / 24, s.y);
+    mesh.rotation.y = -(s.rotation || 0) * Math.PI / 180;
+    group.add(mesh);
+  });
+
+  // Illustrative wing: a 2-foot return with a level top and an underside
+  // rising from the host wall to the outer tip. Dimensions are not takeoff data.
+  wings.forEach((wing) => {
+    const pose = windowPose(wing, walls); if (!pose) return;
+    const wall = walls.find((w) => w.id === wing.wallId);
+    const thickness = (wall?.thickness || 8) / 12, height = wall?.depth || 1, length = 2;
+    const drop = Math.min(2, height);
+    const shape = new THREE.Shape();
+    shape.moveTo(0, 0); shape.lineTo(0, -drop); shape.lineTo(length, 0); shape.closePath();
+    const geometry = new THREE.ExtrudeGeometry(shape, { depth: thickness, bevelEnabled: false });
+    geometry.translate(0, 0, -thickness / 2);
+    const wallColor = new THREE.Color(wall ? rowColor(wallColorKey(wall)) : "#888888");
+    const choices = ["#5d43c7", "#007f9e", "#cd443e", "#258351"];
+    const color = choices.reduce((best, candidate) => {
+      const distance = (s) => { const c = new THREE.Color(s); return (c.r - wallColor.r) ** 2 + (c.g - wallColor.g) ** 2 + (c.b - wallColor.b) ** 2; };
+      return distance(candidate) > distance(best) ? candidate : best;
+    });
+    const mesh = new THREE.Mesh(geometry, new THREE.MeshLambertMaterial({ color: cInt(sel?.type === "wing" && sel.id === wing.id ? SELECTED_COLOR : color) }));
+    const side = wing.side || 1, offset = thickness / 2;
+    mesh.position.set(pose.x - Math.sin(pose.ang) * side * offset, wall ? topY : height, pose.y + Math.cos(pose.ang) * side * offset);
+    mesh.rotation.y = -pose.ang - side * Math.PI / 2;
+    mesh.userData.kind = "wing";
     group.add(mesh);
   });
 

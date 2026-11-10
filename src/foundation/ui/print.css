@@ -1,0 +1,19 @@
+.print-sheet { display: none; }
+@media print {
+  @page { size: landscape; margin: 0.45in; }
+  html, body, #root { width: auto !important; height: auto !important; overflow: visible !important; background: white !important; }
+  .takeoff-app, .print-source { display: none !important; }
+  .print-sheet { display: block; color: #1c252d; background: white; font: 10pt system-ui, sans-serif; }
+  .print-sheet header { display: flex; align-items: baseline; justify-content: space-between; border-bottom: 2px solid #324657; margin-bottom: 10px; }
+  .print-sheet h1 { font-size: 19pt; margin: 0 0 6px; }
+  .print-sheet h2 { font-size: 12pt; margin: 8px 0; }
+  .print-views { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  .print-views > div { min-width: 0; break-inside: avoid; }
+  .print-plan, .print-views img { width: 100%; height: 3.2in; border: 1px solid #ccd2d8; object-fit: contain; }
+  .print-plan svg { display: block; width: 100% !important; height: 100% !important; object-fit: contain; }
+  .print-sheet table { border-collapse: collapse; width: 100%; font-size: 9pt; }
+  .print-sheet th, .print-sheet td { border-bottom: 1px solid #ddd; padding: 4px 6px; text-align: left; }
+  .print-sheet th:last-child, .print-sheet td:last-child { text-align: right; }
+  .print-sheet tr { break-inside: avoid; }
+  .print-note { color: #555; font-size: 8pt; }
+}

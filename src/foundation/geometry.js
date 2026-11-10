@@ -28,6 +28,20 @@ export function formatFtIn(ft) {
 // ---------- basic vector / point helpers ----------
 export const dist = (x1, y1, x2, y2) => Math.hypot(x2 - x1, y2 - y1);
 export const wallLen = (w) => dist(w.x1, w.y1, w.x2, w.y2);
+// Slab rotation is in degrees in the plan, clockwise on screen.
+export function slabCorners(s) {
+  const angle = (s.rotation || 0) * Math.PI / 180, c = Math.cos(angle), n = Math.sin(angle);
+  return [[-s.w / 24, -s.l / 24], [s.w / 24, -s.l / 24], [s.w / 24, s.l / 24], [-s.w / 24, s.l / 24]].map(([x, y]) => ({ x: s.x + x * c - y * n, y: s.y + x * n + y * c }));
+}
+
+export function wingFootprint(wing, walls) {
+  const p = windowPose(wing, walls);
+  if (!p) return [];
+  const ux = Math.cos(p.ang), uy = Math.sin(p.ang), side = wing.side || 1;
+  const nx = -uy * side, ny = ux * side, half = (p.thickness || 8) / 24;
+  const at = (along, out) => ({ x: p.x + ux * along + nx * out, y: p.y + uy * along + ny * out });
+  return [at(-half, half), at(half, half), at(half, half + 2), at(-half, half + 2)];
+}
 export const same = (ax, ay, bx, by) => Math.abs(ax - bx) < EP && Math.abs(ay - by) < EP;
 export const clone = (o) => JSON.parse(JSON.stringify(o));
 
@@ -439,12 +453,15 @@ export function findWallSnap(wx, wy, walls, tol) {
 
 // Collects the world-space points that should be framed by "Fit view":
 // wall endpoints, pad footprints, and traced area outlines.
-export function collectFitPoints({ walls, pads, areas, drains = [] }) {
+export function collectFitPoints({ walls, pads, areas, drains = [], slabs = [], texts = [], wings = [] }) {
   const pts = [];
   walls.forEach((w) => { pts.push([w.x1, w.y1], [w.x2, w.y2]); });
   pads.forEach((p) => { pts.push([p.x - p.w / 24, p.y - p.l / 24], [p.x + p.w / 24, p.y + p.l / 24]); });
   areas.forEach((a) => a.pts.forEach((p) => pts.push([p.x, p.y])));
   drains.forEach((d) => d.pts.forEach((p) => pts.push([p.x, p.y])));
+  slabs.forEach((s) => slabCorners(s).forEach((p) => pts.push([p.x, p.y])));
+  texts.forEach((t) => { pts.push([t.x, t.y - t.size / 12], [t.x + t.text.length * t.size / 20, t.y]); });
+  wings.forEach((w) => wingFootprint(w, walls).forEach((p) => pts.push([p.x, p.y])));
   return pts;
 }
 

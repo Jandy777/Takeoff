@@ -15,6 +15,8 @@ export const footingKey = (w) => { const f = footOf(w); return `footing|${f.w}|$
 export const padKey = (p) => `pad|${p.w}x${p.l}x${p.d}`;
 export const winKey = (w) => `win|${w.kind}|${w.width}`;
 export const areaKey = (a) => `area|${a.id}`;
+export const slabKey = (s) => `thickened-slab|${s.w}|${s.l}|${s.d}`;
+export const wingKey = () => "wing-arm";
 
-export const EMPTY_DOC = { walls: [], pads: [], windows: [], areas: [], dims: [], drains: [], ledges: [] };
+export const EMPTY_DOC = { walls: [], pads: [], windows: [], areas: [], dims: [], drains: [], ledges: [], slabs: [], texts: [], wings: [] };
 

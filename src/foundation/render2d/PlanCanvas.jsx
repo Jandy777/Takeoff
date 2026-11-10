@@ -1,7 +1,8 @@
 import React from "react";
 import { SEL } from "../constants";
 import { MONO as mono } from "../constants";
-import { wallLen } from "../geometry";
+import { wallLen, windowPose } from "../geometry";
+import { slabKey } from "../model";
 import { Grid } from "./Grid";
 import { WallGlyph } from "./WallGlyph";
 import { PadGlyph } from "./PadGlyph";
@@ -40,6 +41,19 @@ export function PlanCanvas({
       <g>{areas.map((a) => <AreaGlyph key={a.id} area={a} tf={tf} toScreen={toScreen} sel={selFor("area", a.id)} rowColor={rowColor} shown={shown} />)}</g>
       <g>{walls.map((w) => <WallGlyph key={w.id} wall={w} walls={walls} tf={tf} toScreen={toScreen} sel={selFor("wall", w.id)} rowColor={rowColor} shown={shown} showDims={showDims} />)}</g>
       <g>{pads.map((p) => <PadGlyph key={p.id} pad={p} tf={tf} toScreen={toScreen} sel={selFor("pad", p.id)} rowColor={rowColor} shown={shown} />)}</g>
+      <g>{(doc.slabs || []).map((s) => {
+        const [x, y] = toScreen(s.x, s.y), w = s.w / 12 * tf.scale, h = s.l / 12 * tf.scale;
+        const active = selFor("slab", s.id)?.type === "slab" && selFor("slab", s.id)?.id === s.id;
+        return <g key={s.id} opacity={shown(slabKey(s)) ? 1 : 0.06}><rect x={x - w / 2} y={y - h / 2} width={w} height={h} transform={`rotate(${s.rotation || 0} ${x} ${y})`} fill={rowColor(slabKey(s))} fillOpacity={0.35} stroke={active ? SEL : rowColor(slabKey(s))} strokeWidth={active ? 3 : 1.5} /><text x={x} y={y} textAnchor="middle" fontSize={10} fill="#26313b" fontFamily={mono}>TS {s.w}×{s.l}×{s.d}″</text></g>;
+      })}</g>
+      <g>{(doc.wings || []).map((w) => {
+        const p = windowPose(w, walls); if (!p) return null;
+        const [x, y] = toScreen(p.x, p.y), angle = p.ang * 180 / Math.PI;
+        const active = selFor("wing", w.id)?.type === "wing" && selFor("wing", w.id)?.id === w.id;
+        const side = w.side || 1, wallThick = (p.thickness || 8) / 12 * tf.scale, armLength = 2 * tf.scale;
+        return <g key={w.id} transform={`translate(${x} ${y}) rotate(${angle})`}><rect x={-wallThick / 2} y={side > 0 ? wallThick / 2 : -wallThick / 2 - armLength} width={wallThick} height={armLength} fill="#b3a2c5" stroke={active ? SEL : "#734c99"} strokeWidth={active ? 2.5 : 1.5} /><text x={wallThick / 2 + 4} y={side * (wallThick / 2 + armLength)} fontSize={10} fill="#553373">WA</text></g>;
+      })}</g>
+      <g>{(doc.texts || []).map((t) => { const [x, y] = toScreen(t.x, t.y); const active = selFor("text", t.id)?.type === "text" && selFor("text", t.id)?.id === t.id; return <text key={t.id} x={x} y={y} fontSize={Math.max(1, t.size / 12 * tf.scale)} fill={t.color || "#20262d"} stroke={active ? SEL : "none"} strokeWidth={active ? 2 : 0} paintOrder="stroke" fontFamily="sans-serif">{t.text}</text>; })}</g>
       <g>{windows.map((w) => <WindowGlyph key={w.id} win={w} walls={walls} tf={tf} toScreen={toScreen} sel={selFor("window", w.id)} rowColor={rowColor} shown={shown} />)}</g>
       <g>{dims.map((m) => <DimGlyph key={m.id} dim={m} toScreen={toScreen} sel={selFor("dim", m.id)} />)}</g>
       <g>{(doc.drains || []).map((drain) => (

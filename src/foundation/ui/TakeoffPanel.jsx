@@ -14,8 +14,9 @@ export function TakeoffPanel({
   selDrain,
   selLedge,
   groupSelection, groupTakeoff,
+  selSlab, selText, selWing, updateSlab, updateText,
 }) {
-  const hasDoc = Boolean(takeoff.wallRows.length || takeoff.padRows.length || takeoff.winRows.length || takeoff.areaRows.length || takeoff.drainRows.length || takeoff.ledgeRows.length);
+  const hasDoc = Boolean(takeoff.wallRows.length || takeoff.padRows.length || takeoff.winRows.length || takeoff.areaRows.length || takeoff.drainRows.length || takeoff.ledgeRows.length || takeoff.slabRows.length || takeoff.wingCount);
   const onSelectColor = (key, color) => setRowColors((c) => ({ ...c, [key]: color }));
   const rowProps = (key, colorKey = key) => ({
     active: soloSet.has(key), dimmed: soloSet.size > 0 && !soloSet.has(key),
@@ -41,6 +42,8 @@ export function TakeoffPanel({
           {groupTakeoff.wallRows.map((r) => <div key={r.key} style={{ display: "flex", justifyContent: "space-between", gap: 8 }}><span>{r.thickness}″ × {formatFtIn(r.depth)} wall ({r.basis})</span><span>{formatFtIn(r.len)}</span></div>)}
           {groupTakeoff.footingRows.map((r) => <div key={r.key} style={{ display: "flex", justifyContent: "space-between", gap: 8 }}><span>Footing {r.width}″ × {r.height}″ ({r.basis})</span><span>{formatFtIn(r.len)}</span></div>)}
           {groupTakeoff.padRows.map((r) => <div key={r.key}>Pad {r.w}″ × {r.l}″ × {r.d}″: {r.count}</div>)}
+          {groupTakeoff.slabRows.map((r) => <div key={r.key}>Thickened slab {r.w}″ × {r.l}″ × {r.d}″: {r.count} · {r.cy.toFixed(2)} gross CY</div>)}
+          {groupTakeoff.wingCount > 0 && <div>Wing arms: {groupTakeoff.wingCount}</div>}
           {groupTakeoff.winRows.map((r) => <div key={r.key}>{r.kind === "well" ? "Window well" : "Peek window"} {r.width}″: {r.count}</div>)}
           {groupTakeoff.areaRows.map((r) => <div key={r.key}>{r.name}: {Math.round(r.sf)} SF</div>)}
           {groupTakeoff.drainRows.map((r) => <div key={r.kind}>{r.kind} drain tile: {formatFtIn(r.len)}</div>)}
@@ -89,6 +92,11 @@ export function TakeoffPanel({
             ))}
           </>
         )}
+        {takeoff.slabRows.length > 0 && <>
+          <div style={{ margin: "6px 0 6px" }}><Label>Thickened slabs</Label></div>
+          {takeoff.slabRows.map((r) => <TakeoffRow key={r.key} rowKey={r.key} {...rowProps(r.key)} main={`${r.w}″ × ${r.l}″ × ${r.d}″`} value={`× ${r.count}`} sub={`${r.cy.toFixed(2)} gross CY · no overlap deduction`} />)}
+        </>}
+        {takeoff.wingCount > 0 && <><div style={{ margin: "6px 0 6px" }}><Label>Wing arms</Label></div><div style={{ padding: "6px 10px", fontSize: 12 }}>Wing wall markers: {takeoff.wingCount}</div></>}
 
         {takeoff.winRows.length > 0 && (
           <>
@@ -281,6 +289,24 @@ export function TakeoffPanel({
         <Label>{selLedge.kind} ledge {selLedge.size.replace("x", "×")}</Label>
         <button onClick={deleteSel} style={{ background: "transparent", border: `1px solid ${COLORS.border}`, color: "#e07b7b", borderRadius: 6, padding: "3px 8px", cursor: "pointer" }}>Delete segment</button>
       </div>}
+      {selSlab && <div style={{ borderTop: `1px solid ${COLORS.border}`, padding: "12px 14px" }}>
+        <div style={{ display: "flex", justifyContent: "space-between" }}><Label>Thickened slab</Label><button onClick={deleteSel}>Delete</button></div>
+        <div style={{ fontSize: 10, margin: "8px 0", color: COLORS.textMut }}>Width × length × total depth (inches)</div>
+        <div style={{ display: "flex", gap: 6 }}>{["w", "l", "d"].map((k) => <input key={k} aria-label={{ w: "Slab width inches", l: "Slab length inches", d: "Slab depth inches" }[k]} type="number" min="0.1" value={selSlab[k]} onChange={(e) => { const n = Number(e.target.value); if (n > 0) updateSlab({ [k]: n }); }} style={{ ...inputStyle, width: 65 }} />)}</div>
+        <div style={{ display: "flex", gap: 6, alignItems: "center", marginTop: 10 }}>
+          <span style={{ fontSize: 11, color: COLORS.textMut }}>Rotation</span>
+          <button type="button" onClick={() => updateSlab({ rotation: ((selSlab.rotation || 0) - 90 + 360) % 360 })} title="Rotate 90 degrees left">↶ 90°</button>
+          <input aria-label="Slab rotation degrees" type="number" value={selSlab.rotation || 0} onChange={(e) => { const n = e.target.valueAsNumber; if (Number.isFinite(n)) updateSlab({ rotation: n }); }} style={{ ...inputStyle, width: 65 }} />°
+          <button type="button" onClick={() => updateSlab({ rotation: ((selSlab.rotation || 0) + 90) % 360 })} title="Rotate 90 degrees right">↷ 90°</button>
+        </div>
+      </div>}
+      {selText && <div style={{ borderTop: `1px solid ${COLORS.border}`, padding: "12px 14px" }}>
+        <div style={{ display: "flex", justifyContent: "space-between" }}><Label>Drawing text</Label><button onClick={deleteSel}>Delete</button></div>
+        <input aria-label="Edit drawing text" value={selText.text} onChange={(e) => updateText({ text: e.target.value })} style={{ ...inputStyle, width: "100%", marginTop: 8 }} />
+        <label style={{ display: "flex", gap: 8, alignItems: "center", marginTop: 8, fontSize: 11 }}>Height (inches) <input aria-label="Edit text height inches" type="number" min="1" value={selText.size} onChange={(e) => { const n = Number(e.target.value); if (n >= 1) updateText({ size: n }); }} style={{ ...inputStyle, width: 65 }} /></label>
+        <label style={{ display: "flex", gap: 8, alignItems: "center", marginTop: 8, fontSize: 11 }}>Color <input aria-label="Edit text color" type="color" value={selText.color || "#20262d"} onChange={(e) => updateText({ color: e.target.value })} /></label>
+      </div>}
+      {selWing && <div style={{ borderTop: `1px solid ${COLORS.border}`, padding: "12px 14px", display: "flex", justifyContent: "space-between" }}><Label>Wing arm marker</Label><button onClick={deleteSel}>Delete</button></div>}
     </div>
   );
 }

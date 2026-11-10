@@ -13,6 +13,9 @@ function hintFor({ mode, start, sel, pendingWin, winSpec, areaMode, rulerPt }) {
       return "Click to edit · Shift-click to add/remove · drag a box to select touched items · middle-drag to pan";
     case "pad":
       return "Click to stamp pads · right-click when done";
+    case "slab": return "Click to place a thickened slab · right-click when done";
+    case "text": return "Click to place text · right-click when done";
+    case "wing": return "Click a wall to place a wing arm marker · right-click when done";
     case "window":
       if (pendingWin) return "Now click the side the well faces — the arrow points outside the foundation";
       return winSpec.kind === "well"

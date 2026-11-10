@@ -24,6 +24,7 @@ const {
   resolveLedges,
   parseLength,
   formatFtIn,
+  slabCorners,
 } = await server.ssrLoadModule("/src/foundation/geometry.js");
 const { computeTakeoff } = await server.ssrLoadModule("/src/foundation/takeoff.js");
 const { wallKey, wallColorKey, footingKey, footingColorKey } = await server.ssrLoadModule("/src/foundation/model.js");
@@ -86,6 +87,45 @@ try {
   const square = centerlineClosedWallRun(makeRun([
     { x: 0, y: 0 }, { x: 15, y: 0 }, { x: 15, y: 15 }, { x: 0, y: 15 },
   ]), "outside");
+  const newItems = {
+    walls: square, pads: [], windows: [], areas: [], dims: [], drains: [], ledges: [],
+    slabs: [{ id: 101, x: 4, y: 4, w: 24, l: 120, d: 12 }, { id: 102, x: 8, y: 8, w: 24, l: 120, d: 12 }],
+    texts: [{ id: 103, x: 5, y: 5, text: "Plan note", size: 6 }],
+    wings: [{ id: 104, wallId: square[0].id, t: 0.5, side: 1 }],
+  };
+  const newTakeoff = computeTakeoff(newItems);
+  assert.equal(newTakeoff.slabRows[0].count, 2, "equal thickened slabs group together");
+  closeTo(newTakeoff.slabRows[0].cy, 2 * 24 * 120 * 12 / 46656, "gross thickened slab volume");
+  assert.equal(newTakeoff.wingCount, 1, "wing arm is counted");
+  const newHits = selectInBox(newItems, { x: -1, y: -1 }, { x: 16, y: 16 });
+  assert.ok(newHits.some((s) => s.type === "slab") && newHits.some((s) => s.type === "text") && newHits.some((s) => s.type === "wing"), "new items participate in group selection");
+  const newMoved = moveSelection(newItems, newHits, 2, 3);
+  assert.ok(newMoved.doc, "new items move with a complete selected foundation");
+  closeTo(newMoved.doc.slabs[0].x, 6, "selected slab moves");
+  closeTo(newMoved.doc.texts[0].y, 8, "selected text moves");
+  assert.equal(newMoved.doc.wings[0].t, 0.5, "wing remains attached to selected wall");
+  const newDeleted = deleteSelection(newItems, newHits);
+  assert.equal(newDeleted.slabs.length + newDeleted.texts.length + newDeleted.wings.length, 0, "new items delete with selection");
+  const newScene = new THREE.Group();
+  buildScene(newScene, newItems, null, () => true, () => "#777777");
+  assert.equal(newScene.children.filter((obj) => obj.geometry?.type === "BoxGeometry").length, 2, "thickened slabs appear as 3D solids");
+  const wingMesh = newScene.children.find((obj) => obj.userData.kind === "wing");
+  assert.ok(wingMesh && wingMesh.geometry.type === "ExtrudeGeometry", "wing is a tapered wall-shaped return");
+  wingMesh.geometry.computeBoundingBox();
+  closeTo(wingMesh.geometry.boundingBox.max.x, 2, "illustrative wing return length");
+  closeTo(wingMesh.geometry.boundingBox.min.y, -2, "illustrative wing depth at wall");
+  closeTo(wingMesh.geometry.boundingBox.max.y, 0, "wing top remains level");
+  assert.notEqual(wingMesh.material.color.getHex(), new THREE.Color("#777777").getHex(), "wing color differs from host wall");
+  const rotated = { id: 300, x: 0, y: 0, w: 24, l: 120, d: 12, rotation: 90 };
+  const corners = slabCorners(rotated);
+  closeTo(Math.max(...corners.map((p) => p.x)) - Math.min(...corners.map((p) => p.x)), 10, "90-degree slab width span");
+  closeTo(Math.max(...corners.map((p) => p.y)) - Math.min(...corners.map((p) => p.y)), 2, "90-degree slab length span");
+  const rotatedDoc = { walls: [], pads: [], windows: [], areas: [], slabs: [rotated] };
+  assert.ok(selectInBox(rotatedDoc, { x: 4.5, y: -0.2 }, { x: 4.9, y: 0.2 }).some((s) => s.type === "slab"), "selection uses rotated slab shape");
+  assert.ok(!selectInBox(rotatedDoc, { x: -0.2, y: 4.5 }, { x: 0.2, y: 4.9 }).some((s) => s.type === "slab"), "selection excludes prior unrotated extent");
+  const rotatedScene = new THREE.Group();
+  buildScene(rotatedScene, rotatedDoc, null, () => true, () => "#777777");
+  closeTo(rotatedScene.children[0].rotation.y, -Math.PI / 2, "3D slab rotation matches plan");
   const differentFooting = { ...square[1], footing: { w: 20, h: 8 } };
   assert.equal(wallKey(square[0]), wallKey(differentFooting), "footing size does not split wall row");
   assert.equal(wallColorKey(square[0]), wallColorKey(differentFooting), "same wall uses same color");

@@ -1,10 +1,10 @@
 import { wallMeasuredLen, shoelace, dist } from "./geometry";
-import { footOf, wallKey, wallColorKey, footingKey, footingColorKey, padKey, winKey, areaKey } from "./model";
+import { footOf, wallKey, wallColorKey, footingKey, footingColorKey, padKey, winKey, areaKey, slabKey } from "./model";
 
 // Pure rollup of a document's entities into the grouped rows shown in the
 // takeoff panel. Kept free of React so it can be unit tested and reused
 // (e.g. for export/print) without mounting the editor.
-export function computeTakeoff({ walls, pads, windows, areas, drains = [], ledges = [], wallGeometry = walls }) {
+export function computeTakeoff({ walls, pads, windows, areas, drains = [], ledges = [], slabs = [], wings = [], wallGeometry = walls }) {
   const wallGroups = new Map();
   const footingGroups = new Map();
   let totalLF = 0;
@@ -37,6 +37,12 @@ export function computeTakeoff({ walls, pads, windows, areas, drains = [], ledge
     winGroups.get(key).count++;
   }
   const areaRows = areas.map((a) => ({ key: areaKey(a), name: a.name, sf: Math.abs(shoelace(a.pts)) }));
+  const slabGroups = new Map();
+  for (const s of slabs) {
+    const key = slabKey(s);
+    if (!slabGroups.has(key)) slabGroups.set(key, { key, w: s.w, l: s.l, d: s.d, count: 0, cy: 0 });
+    const row = slabGroups.get(key); row.count++; row.cy += s.w * s.l * s.d / 46656;
+  }
   const totalSF = areaRows.reduce((s, r) => s + r.sf, 0);
   const drainRows = ["exterior", "interior"].map((kind) => {
     const runs = drains.filter((d) => d.kind === kind);
@@ -60,6 +66,8 @@ export function computeTakeoff({ walls, pads, windows, areas, drains = [], ledge
     totalSF,
     drainRows,
     ledgeRows: [...ledgeGroups.values()],
+    slabRows: [...slabGroups.values()],
+    wingCount: wings.length,
   };
 }
 

@@ -3,6 +3,7 @@ import { COLORS, THICKNESS_PRESETS, DEPTH_PRESETS } from "../constants";
 import { dist, formatFtIn, shoelace } from "../geometry";
 import { footOf, defFootW, defFootH } from "../model";
 import { Pill, Label, TakeoffRow, inputStyle, mono } from "./primitives";
+import { LengthReference } from "./LengthReference";
 
 export function TakeoffPanel({
   takeoff, rowColor, setRowColors, soloSet, toggleSolo, setSolo,
@@ -12,12 +13,13 @@ export function TakeoffPanel({
   selectedWallLengths,
   selDrain,
   selLedge,
+  groupSelection, groupTakeoff,
 }) {
   const hasDoc = Boolean(takeoff.wallRows.length || takeoff.padRows.length || takeoff.winRows.length || takeoff.areaRows.length || takeoff.drainRows.length || takeoff.ledgeRows.length);
   const onSelectColor = (key, color) => setRowColors((c) => ({ ...c, [key]: color }));
-  const rowProps = (key) => ({
+  const rowProps = (key, colorKey = key) => ({
     active: soloSet.has(key), dimmed: soloSet.size > 0 && !soloSet.has(key),
-    color: rowColor(key), onSelectColor, onToggleSolo: toggleSolo,
+    color: rowColor(colorKey), colorKey, onSelectColor, onToggleSolo: toggleSolo,
   });
 
   return (
@@ -29,6 +31,22 @@ export function TakeoffPanel({
         )}
       </div>
       <div style={{ flex: 1, overflowY: "auto", padding: "10px 14px" }}>
+        <LengthReference />
+        {groupTakeoff && <div style={{ border: `1px solid ${COLORS.accent}`, borderRadius: 7, padding: 10, marginBottom: 14, fontSize: 12 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+            <Label>Selected group · {groupSelection.length} items</Label>
+            <button onClick={deleteSel} style={{ background: "transparent", border: `1px solid ${COLORS.border}`, color: "#e07b7b", borderRadius: 6, padding: "3px 8px", cursor: "pointer" }}>Delete group</button>
+          </div>
+          <div style={{ color: COLORS.textMut, fontSize: 10, marginBottom: 8 }}>Shift-click adds or removes items. Drag a highlighted item to move the group. Middle-drag pans.</div>
+          {groupTakeoff.wallRows.map((r) => <div key={r.key} style={{ display: "flex", justifyContent: "space-between", gap: 8 }}><span>{r.thickness}″ × {formatFtIn(r.depth)} wall ({r.basis})</span><span>{formatFtIn(r.len)}</span></div>)}
+          {groupTakeoff.footingRows.map((r) => <div key={r.key} style={{ display: "flex", justifyContent: "space-between", gap: 8 }}><span>Footing {r.width}″ × {r.height}″ ({r.basis})</span><span>{formatFtIn(r.len)}</span></div>)}
+          {groupTakeoff.padRows.map((r) => <div key={r.key}>Pad {r.w}″ × {r.l}″ × {r.d}″: {r.count}</div>)}
+          {groupTakeoff.winRows.map((r) => <div key={r.key}>{r.kind === "well" ? "Window well" : "Peek window"} {r.width}″: {r.count}</div>)}
+          {groupTakeoff.areaRows.map((r) => <div key={r.key}>{r.name}: {Math.round(r.sf)} SF</div>)}
+          {groupTakeoff.drainRows.map((r) => <div key={r.kind}>{r.kind} drain tile: {formatFtIn(r.len)}</div>)}
+          {groupTakeoff.ledgeRows.map((r) => <div key={`${r.kind}-${r.size}`}>{r.kind} ledge {r.size}: {formatFtIn(r.len)}</div>)}
+          {groupSelection.some((s) => s.type === "dim") && <div>Measurements: {groupSelection.filter((s) => s.type === "dim").length}</div>}
+        </div>}
         {!hasDoc && (
           <div style={{ fontSize: 12, color: COLORS.textMut, lineHeight: 1.6 }}>
             Nothing drawn yet. Draw walls, stamp pier pads and windows, or measure square footage — every item shows up here, color-matched to the plan. Click a row to isolate it on the drawing.
@@ -39,10 +57,10 @@ export function TakeoffPanel({
           <>
             <div style={{ margin: "2px 0 6px" }}><Label>Walls — lineal feet</Label></div>
             {takeoff.wallRows.map((r) => (
-              <TakeoffRow key={r.key} rowKey={r.key} {...rowProps(r.key)}
+              <TakeoffRow key={r.key} rowKey={r.key} {...rowProps(r.key, r.colorKey)}
                 main={`${r.thickness}" × ${formatFtIn(r.depth)} wall`}
                 value={formatFtIn(r.len)}
-                sub={`${r.basis === "outside" ? "outside-face" : r.basis === "inside" ? "inside-face" : "centerline"} LF · footing ${r.fw}" × ${r.fh}"`}
+                sub={`${r.basis === "outside" ? "outside-face" : r.basis === "inside" ? "inside-face" : "centerline"} LF`}
                 subRight={`${r.count} wall${r.count > 1 ? "s" : ""}`}
               />
             ))}
@@ -52,6 +70,13 @@ export function TakeoffPanel({
             </div>
           </>
         )}
+
+        {takeoff.footingRows.length > 0 && <>
+          <div style={{ margin: "6px 0 6px" }}><Label>Footings — lineal feet</Label></div>
+          {takeoff.footingRows.map((r) => <TakeoffRow key={r.key} rowKey={r.key} {...rowProps(r.key, r.colorKey)}
+            main={`Footing ${r.width}" × ${r.height}"`} value={formatFtIn(r.len)}
+            sub={`${r.basis === "outside" ? "outside-face" : r.basis === "inside" ? "inside-face" : "centerline"} LF · assumed from wall`} subRight={`${r.count} run${r.count === 1 ? "" : "s"}`} />)}
+        </>}
 
         {takeoff.padRows.length > 0 && (
           <>

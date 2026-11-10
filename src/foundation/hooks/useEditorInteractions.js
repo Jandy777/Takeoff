@@ -6,6 +6,7 @@ import {
   snapToWallFace, ledgeOnWallFace,
 } from "../geometry";
 import { nid, footOf } from "../model";
+import { selectInBox, selected, toggleSelection, moveSelection, deleteSelection } from "../selection";
 
 // The interaction "engine": current tool/mode, in-progress drawing state,
 // selection, pointer + keyboard handling, and the document-mutating actions
@@ -35,6 +36,8 @@ export function useEditorInteractions({ doc, apply, pushUndo, doUndo: undo1, doR
   const [customT, setCustomT] = useState("");
   const [customD, setCustomD] = useState("");
   const [sel, setSel] = useState(null); // {type, id}
+  const [groupSelection, setGroupSelection] = useState([]);
+  const [selectionBox, setSelectionBox] = useState(null);
   const [confirmClear, setConfirmClear] = useState(false);
   const [toast, setToast] = useState(null);
 
@@ -55,6 +58,8 @@ export function useEditorInteractions({ doc, apply, pushUndo, doUndo: undo1, doR
 
   const dragRef = useRef(null); // wall endpoint drag
   const dragEntRef = useRef(null); // pad/window drag
+  const boxRef = useRef(null);
+  const groupDragRef = useRef(null);
   const runWallIdsRef = useRef([]);
   const runBasisRef = useRef("outside");
 
@@ -63,8 +68,8 @@ export function useEditorInteractions({ doc, apply, pushUndo, doUndo: undo1, doR
     setTimeout(() => setToast(null), 2600);
   }, []);
 
-  const doUndo = useCallback(() => { if (undo1()) setSel(null); }, [undo1]);
-  const doRedo = useCallback(() => { if (redo1()) setSel(null); }, [redo1]);
+  const doUndo = useCallback(() => { if (undo1()) { setSel(null); setGroupSelection([]); } }, [undo1]);
+  const doRedo = useCallback(() => { if (redo1()) { setSel(null); setGroupSelection([]); } }, [redo1]);
 
   const selectAreaMode = useCallback((next) => {
     setAreaMode(next);
@@ -335,6 +340,16 @@ export function useEditorInteractions({ doc, apply, pushUndo, doUndo: undo1, doR
       }
 
       // ---- select mode ----
+      if (e.shiftKey) {
+        const hit = hitTest(wx, wy);
+        if (hit) {
+          const current = groupSelection.length ? groupSelection : sel ? [sel] : [];
+          const next = toggleSelection(current, hit);
+          setGroupSelection(next.length > 1 ? next : []);
+          setSel(next.length === 1 ? next[0] : null);
+        }
+        return;
+      }
       if (sel && sel.type === "wall") {
         const w = walls.find((q) => q.id === sel.id);
         if (w) {
@@ -357,16 +372,23 @@ export function useEditorInteractions({ doc, apply, pushUndo, doUndo: undo1, doR
       }
       const hit = hitTest(wx, wy);
       if (hit) {
+        if (groupSelection.length > 1 && selected(groupSelection, hit.type, hit.id)) {
+          groupDragRef.current = { x: wx, y: wy, snapshot: clone(doc), items: groupSelection, hit, moved: false, warned: false };
+          return;
+        }
+        setGroupSelection([]);
         setSel(hit);
         if (hit.type === "pad" || hit.type === "window") {
           dragEntRef.current = { ...hit, snapshot: clone(doc), moved: false };
         }
       } else {
         setSel(null);
-        beginPan(sx, sy);
+        setGroupSelection([]);
+        boxRef.current = { x: wx, y: wy, sx, sy, current: { x: wx, y: wy } };
+        setSelectionBox({ a: { x: wx, y: wy }, b: { x: wx, y: wy } });
       }
     },
-    [svgPoint, beginPan, tf, mode, areaMode, rulerPt, pendingWin, toWorld, commitWallPoint, snapPreview, start, apply, snapTo, padSpec, winSpec, walls, areas, sel, doc, hitTest, closeTrace, commitTracePoint, tracePts, showToast, drainPts, finishDrain, ledgeStart, ledgeSize, ledgeKind, ledges]
+    [svgPoint, beginPan, tf, mode, areaMode, rulerPt, pendingWin, toWorld, commitWallPoint, snapPreview, start, apply, snapTo, padSpec, winSpec, walls, areas, sel, doc, hitTest, closeTrace, commitTracePoint, tracePts, showToast, drainPts, finishDrain, ledgeStart, ledgeSize, ledgeKind, ledges, groupSelection]
   );
 
   const onMouseMove = useCallback(
@@ -377,6 +399,23 @@ export function useEditorInteractions({ doc, apply, pushUndo, doUndo: undo1, doR
       const [wx, wy] = toWorld(sx, sy);
       setMouse({ x: wx, y: wy });
       setAltFree(e.altKey);
+
+      if (boxRef.current) {
+        boxRef.current.current = { x: wx, y: wy };
+        boxRef.current.moved = Math.hypot(sx - boxRef.current.sx, sy - boxRef.current.sy) >= 4;
+        setSelectionBox({ a: { x: boxRef.current.x, y: boxRef.current.y }, b: { x: wx, y: wy } });
+        return;
+      }
+      if (groupDragRef.current) {
+        const g = groupDragRef.current;
+        const dx = wx - g.x, dy = wy - g.y;
+        if (!g.moved && Math.hypot(dx, dy) * tf.scale < 4) return;
+        const result = moveSelection(g.snapshot, g.items, dx, dy);
+        if (result.error) { if (!g.warned) { showToast(result.error); g.warned = true; } return; }
+        g.moved = true;
+        setDoc(result.doc);
+        return;
+      }
 
       if (dragRef.current) {
         const tol = 12 / tf.scale;
@@ -441,11 +480,26 @@ export function useEditorInteractions({ doc, apply, pushUndo, doUndo: undo1, doR
       else if (mode === "window") setSnapInfo(pendingWin ? null : findWallSnap(wx, wy, walls, Math.max(16 / tf.scale, 2)));
       else setSnapInfo(null);
     },
-    [svgPoint, updatePan, toWorld, tf.scale, snapTo, walls, setDoc, mode, snapPreview, start, rulerPt, areaMode, tracePts, pendingWin, drainPts]
+    [svgPoint, updatePan, toWorld, tf.scale, snapTo, walls, setDoc, mode, snapPreview, start, rulerPt, areaMode, tracePts, pendingWin, drainPts, showToast]
   );
 
   const onMouseUp = useCallback(() => {
     endPan();
+    if (boxRef.current) {
+      const box = boxRef.current;
+      if (box.moved) {
+        const hits = selectInBox(doc, { x: box.x, y: box.y }, box.current);
+        if (hits.length === 1) { setSel(hits[0]); setGroupSelection([]); }
+        else { setSel(null); setGroupSelection(hits); }
+      }
+      boxRef.current = null;
+      setSelectionBox(null);
+    }
+    if (groupDragRef.current) {
+      if (groupDragRef.current.moved) pushUndo(groupDragRef.current.snapshot);
+      else if (!groupDragRef.current.warned) { setSel(groupDragRef.current.hit); setGroupSelection([]); }
+      groupDragRef.current = null;
+    }
     if (dragRef.current) {
       if (dragRef.current.moved) pushUndo(dragRef.current.snapshot);
       dragRef.current = null;
@@ -454,10 +508,16 @@ export function useEditorInteractions({ doc, apply, pushUndo, doUndo: undo1, doR
       if (dragEntRef.current.moved) pushUndo(dragEntRef.current.snapshot);
       dragEntRef.current = null;
     }
-  }, [endPan, pushUndo]);
+  }, [endPan, pushUndo, doc]);
 
   // ---------- delete helpers ----------
   const deleteSel = useCallback(() => {
+    if (groupSelection.length) {
+      apply((d) => deleteSelection(d, groupSelection, doc));
+      setGroupSelection([]);
+      setSel(null);
+      return;
+    }
     if (!sel) return;
     apply((d) => {
       if (sel.type === "wall") {
@@ -479,7 +539,7 @@ export function useEditorInteractions({ doc, apply, pushUndo, doUndo: undo1, doR
       return d;
     });
     setSel(null);
-  }, [sel, apply, drains]);
+  }, [sel, apply, drains, groupSelection, doc]);
 
   // ---------- keyboard ----------
   useEffect(() => {
@@ -500,13 +560,14 @@ export function useEditorInteractions({ doc, apply, pushUndo, doUndo: undo1, doR
       if (e.key === "Escape") {
         setDrainPts([]);
         setLedgeStart(null);
+        setGroupSelection([]); setSelectionBox(null); boxRef.current = null;
         setStart(null); setRunStart(null); setTracePts([]); setRulerPt(null); setPendingWin(null); setTyped("");
         runWallIdsRef.current = [];
         setSel(null); setConfirmClear(false); setModal(null);
         return;
       }
       if (mode === "drain" && e.key === "Enter") { e.preventDefault(); finishDrain(); return; }
-      if ((e.key === "Delete" || e.key === "Backspace") && mode === "select" && sel) {
+      if ((e.key === "Delete" || e.key === "Backspace") && mode === "select" && (sel || groupSelection.length)) {
         e.preventDefault();
         deleteSel();
         return;
@@ -536,13 +597,14 @@ export function useEditorInteractions({ doc, apply, pushUndo, doUndo: undo1, doR
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [mode, areaMode, start, tracePts, typed, snapInfo, mouse, sel, doUndo, doRedo, commitWallPoint, commitTracePoint, closeTrace, deleteSel, finishDrain]);
+  }, [mode, areaMode, start, tracePts, typed, snapInfo, mouse, sel, doUndo, doRedo, commitWallPoint, commitTracePoint, closeTrace, deleteSel, finishDrain, groupSelection]);
 
   // mode switching side effects
   useEffect(() => {
     setStart(null); setRunStart(null); setTracePts([]); setRulerPt(null); setPendingWin(null); setTyped("");
     setDrainPts([]);
     setLedgeStart(null);
+    setGroupSelection([]); setSelectionBox(null); boxRef.current = null; groupDragRef.current = null;
     runWallIdsRef.current = [];
     if (mode !== "select") setSel(null);
     if (mode === "pad") setModal("pad");
@@ -608,6 +670,7 @@ export function useEditorInteractions({ doc, apply, pushUndo, doUndo: undo1, doR
     curT, setCurT, curD, setCurD, customT, setCustomT, customD, setCustomD,
     wallLengthBasis, setWallLengthBasis,
     sel, setSel, selWall, selPad, selWin, selArea, selDim,
+    groupSelection, selectionBox,
     confirmClear, toast, showToast,
     padSpec, setPadSpec, winSpec, setWinSpec, modal, setModal,
     pendingWin,

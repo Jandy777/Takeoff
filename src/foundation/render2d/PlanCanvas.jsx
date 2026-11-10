@@ -9,6 +9,7 @@ import { WindowGlyph } from "./WindowGlyph";
 import { AreaGlyph } from "./AreaGlyph";
 import { DimGlyph } from "./DimGlyph";
 import { ptsStr } from "./screenUtils";
+import { selected } from "../selection";
 
 // The 2D plan: grid + committed entities + every in-progress drawing preview
 // (wall run, ruler, area trace, window/well placement). Purely presentational —
@@ -16,6 +17,7 @@ import { ptsStr } from "./screenUtils";
 export function PlanCanvas({
   svgRef, size, tf, toScreen, toWorld,
   doc, sel, selWall,
+  groupSelection, selectionBox,
   rowColor, shown, showDims,
   mode, areaMode, start, tracePts, rulerPt, pendingWin, mouse, snapInfo,
   curT, curD, winSpec,
@@ -24,6 +26,7 @@ export function PlanCanvas({
   onMouseDown, onMouseMove, onMouseUp, onWheel,
 }) {
   const { walls, pads, windows, areas, dims } = doc;
+  const selFor = (type, id) => selected(groupSelection, type, id) ? { type, id } : sel;
 
   return (
     <svg
@@ -34,21 +37,25 @@ export function PlanCanvas({
     >
       <g id="underlay-layer" />
       <Grid tf={tf} size={size} toWorld={toWorld} toScreen={toScreen} />
-      <g>{areas.map((a) => <AreaGlyph key={a.id} area={a} tf={tf} toScreen={toScreen} sel={sel} rowColor={rowColor} shown={shown} />)}</g>
-      <g>{walls.map((w) => <WallGlyph key={w.id} wall={w} walls={walls} tf={tf} toScreen={toScreen} sel={sel} rowColor={rowColor} shown={shown} showDims={showDims} />)}</g>
-      <g>{pads.map((p) => <PadGlyph key={p.id} pad={p} tf={tf} toScreen={toScreen} sel={sel} rowColor={rowColor} shown={shown} />)}</g>
-      <g>{windows.map((w) => <WindowGlyph key={w.id} win={w} walls={walls} tf={tf} toScreen={toScreen} sel={sel} rowColor={rowColor} shown={shown} />)}</g>
-      <g>{dims.map((m) => <DimGlyph key={m.id} dim={m} toScreen={toScreen} sel={sel} />)}</g>
+      <g>{areas.map((a) => <AreaGlyph key={a.id} area={a} tf={tf} toScreen={toScreen} sel={selFor("area", a.id)} rowColor={rowColor} shown={shown} />)}</g>
+      <g>{walls.map((w) => <WallGlyph key={w.id} wall={w} walls={walls} tf={tf} toScreen={toScreen} sel={selFor("wall", w.id)} rowColor={rowColor} shown={shown} showDims={showDims} />)}</g>
+      <g>{pads.map((p) => <PadGlyph key={p.id} pad={p} tf={tf} toScreen={toScreen} sel={selFor("pad", p.id)} rowColor={rowColor} shown={shown} />)}</g>
+      <g>{windows.map((w) => <WindowGlyph key={w.id} win={w} walls={walls} tf={tf} toScreen={toScreen} sel={selFor("window", w.id)} rowColor={rowColor} shown={shown} />)}</g>
+      <g>{dims.map((m) => <DimGlyph key={m.id} dim={m} toScreen={toScreen} sel={selFor("dim", m.id)} />)}</g>
       <g>{(doc.drains || []).map((drain) => (
         <polyline key={drain.id} points={ptsStr(drain.pts, toScreen)} fill="none"
-          stroke={sel?.type === "drain" && sel.id === drain.id ? SEL : drain.kind === "exterior" ? "#1572a1" : "#9a42aa"}
+          stroke={(sel?.type === "drain" && sel.id === drain.id) || selected(groupSelection, "drain", drain.id) ? SEL : drain.kind === "exterior" ? "#1572a1" : "#9a42aa"}
           strokeWidth={4} strokeDasharray={drain.kind === "interior" ? "7 4" : undefined} strokeLinecap="round" strokeLinejoin="round" />
       ))}</g>
       <g>{(doc.ledges || []).filter((ledge) => ledge.pts.length === 2).map((ledge) => (
         <polyline key={ledge.id} points={ptsStr(ledge.pts, toScreen)} fill="none"
-          stroke={sel?.type === "ledge" && sel.id === ledge.id ? SEL : ledge.kind === "brick" ? "#b64a35" : "#937132"}
+          stroke={(sel?.type === "ledge" && sel.id === ledge.id) || selected(groupSelection, "ledge", ledge.id) ? SEL : ledge.kind === "brick" ? "#b64a35" : "#937132"}
           strokeWidth={5} strokeLinecap="round" />
       ))}</g>
+      {selectionBox && (() => {
+        const [x1, y1] = toScreen(selectionBox.a.x, selectionBox.a.y), [x2, y2] = toScreen(selectionBox.b.x, selectionBox.b.y);
+        return <rect x={Math.min(x1, x2)} y={Math.min(y1, y2)} width={Math.abs(x2 - x1)} height={Math.abs(y2 - y1)} fill="rgba(255,138,61,0.13)" stroke={SEL} strokeWidth={1.5} strokeDasharray="6 4" pointerEvents="none" />;
+      })()}
       {mode === "ledge" && ledgeStart && snapInfo && <line x1={toScreen(ledgeStart.x, ledgeStart.y)[0]} y1={toScreen(ledgeStart.x, ledgeStart.y)[1]} x2={toScreen(snapInfo.x, snapInfo.y)[0]} y2={toScreen(snapInfo.x, snapInfo.y)[1]} stroke="#b64a35" strokeWidth={3} strokeDasharray="6 4" />}
       {mode === "drain" && drainPts.length > 0 && (
         <g>

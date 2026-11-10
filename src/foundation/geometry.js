@@ -6,10 +6,11 @@ export function parseLength(s) {
   if (s == null) return null;
   s = String(s).trim();
   if (!s) return null;
-  let m = s.match(/^(\d+(?:\.\d+)?)\s*'\s*(?:(\d+(?:\.\d+)?)\s*(?:"|in)?\s*)?$/);
+  let m = s.match(/^(\d+(?:\.\d+)?)\s*'\s*-?\s*(?:(\d+(?:\.\d+)?)\s*(?:"|in)?\s*)?$/);
   if (m) return parseFloat(m[1]) + (m[2] ? parseFloat(m[2]) / 12 : 0);
   m = s.match(/^(\d+(?:\.\d+)?)\s*(?:"|in)$/);
   if (m) return parseFloat(m[1]) / 12;
+  if (!/^\d+(?:\.\d+)?$/.test(s)) return null;
   const n = parseFloat(s);
   return Number.isFinite(n) ? n : null;
 }
@@ -19,7 +20,7 @@ export function formatFtIn(ft) {
   const neg = ft < 0;
   ft = Math.abs(ft);
   let f = Math.floor(ft);
-  let i = Math.round((ft - f) * 12);
+  let i = Math.round((ft - f) * 24) / 2;
   if (i === 12) { f += 1; i = 0; }
   return `${neg ? "-" : ""}${f}'-${i}"`;
 }

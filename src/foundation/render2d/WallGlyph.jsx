@@ -2,7 +2,7 @@ import React from "react";
 import { SEL } from "../constants";
 import { MONO as mono } from "../constants";
 import { wallPolygon, wallFaceLengths, formatFtIn } from "../geometry";
-import { footOf, wallKey } from "../model";
+import { footOf, wallKey, wallColorKey, footingKey, footingColorKey } from "../model";
 import { hexToRgba, shade } from "../color";
 import { ptsStr } from "./screenUtils";
 
@@ -12,8 +12,10 @@ export function WallGlyph({ wall: w, isPreview = false, walls, tf, toScreen, sel
   const fPoly = wallPolygon(w, geomWalls, (q) => footOf(q).w / 12);
   if (!wPoly) return null;
   const key = wallKey(w);
-  const col = isPreview ? SEL : rowColor(key);
+  const col = isPreview ? SEL : rowColor(wallColorKey(w));
+  const footCol = isPreview ? SEL : rowColor(footingColorKey(w));
   const vis = isPreview ? 1 : shown(key) ? 1 : 0.06;
+  const footVis = isPreview ? 1 : shown(footingKey(w)) ? 1 : 0.06;
   const [x1, y1] = toScreen(w.x1, w.y1);
   const [x2, y2] = toScreen(w.x2, w.y2);
   const selected = !isPreview && sel && sel.type === "wall" && sel.id === w.id;
@@ -31,8 +33,9 @@ export function WallGlyph({ wall: w, isPreview = false, walls, tf, toScreen, sel
   const offset = basis === "centerline" ? 0 : (w.thickness / 24) * tf.scale + 15;
   const lx = midX + nx * side * offset, ly = midY + ny * side * offset;
   return (
-    <g key={isPreview ? "pv" : "w" + w.id} opacity={vis}>
-      {fPoly && <polygon points={ptsStr(fPoly, toScreen)} fill={hexToRgba(col, 0.25)} />}
+    <g key={isPreview ? "pv" : "w" + w.id}>
+      {fPoly && <polygon points={ptsStr(fPoly, toScreen)} fill={hexToRgba(footCol, 0.38)} stroke={footCol} strokeWidth={1} opacity={footVis} />}
+      <g opacity={vis}>
       <polygon
         points={ptsStr(wPoly, toScreen)}
         fill={hexToRgba(col, isPreview ? 0.6 : 0.85)}
@@ -45,6 +48,7 @@ export function WallGlyph({ wall: w, isPreview = false, walls, tf, toScreen, sel
           {formatFtIn(len)}
         </text>
       )}
+      </g>
     </g>
   );
 }

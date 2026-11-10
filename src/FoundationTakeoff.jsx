@@ -14,6 +14,8 @@ import { Toolbar } from "./foundation/ui/Toolbar";
 import { TakeoffPanel } from "./foundation/ui/TakeoffPanel";
 import { StatusBar } from "./foundation/ui/StatusBar";
 import { PlacementModal } from "./foundation/ui/PlacementModal";
+import { selectionDocument } from "./foundation/selection";
+import { computeTakeoff } from "./foundation/takeoff";
 
 // Orchestrator only: wires the document/view/interaction hooks together and
 // composes the presentational pieces. New tools/panels should be built as
@@ -36,6 +38,7 @@ export default function FoundationTakeoff() {
   );
 
   const takeoff = useTakeoff(doc);
+  const groupTakeoff = useMemo(() => editor.groupSelection.length > 1 ? computeTakeoff({ ...selectionDocument(doc, editor.groupSelection), wallGeometry: doc.walls }) : null, [doc, editor.groupSelection]);
   const { threeWrap } = useThreeScene({ view, doc, sel: editor.sel, shown: visibility.shown, rowColor: visibility.rowColor });
 
   const onFit = () => viewport.fitView(collectFitPoints(doc));
@@ -64,6 +67,7 @@ export default function FoundationTakeoff() {
               svgRef={viewport.svgRef} size={viewport.size} tf={viewport.tf}
               toScreen={viewport.toScreen} toWorld={viewport.toWorld}
               doc={doc} sel={editor.sel} selWall={editor.selWall}
+              groupSelection={editor.groupSelection} selectionBox={editor.selectionBox}
               rowColor={visibility.rowColor} shown={visibility.shown} showDims={editor.showDims}
               mode={editor.mode} areaMode={editor.areaMode}
               start={editor.start} tracePts={editor.tracePts} rulerPt={editor.rulerPt}
@@ -97,6 +101,7 @@ export default function FoundationTakeoff() {
           selectedWallLengths={editor.selectedWallLengths}
           selDrain={editor.selDrain}
           selLedge={editor.selLedge}
+          groupSelection={editor.groupSelection} groupTakeoff={groupTakeoff}
         />
       </div>
 

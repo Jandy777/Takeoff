@@ -39,7 +39,7 @@ export const Swatch = ({ rowKey, color, onChange }) => (
   />
 );
 
-export const TakeoffRow = ({ rowKey, main, value, sub, subRight, active, dimmed, color, onSelectColor, onToggleSolo }) => (
+export const TakeoffRow = ({ rowKey, colorKey = rowKey, main, value, sub, subRight, active, dimmed, color, onSelectColor, onToggleSolo }) => (
   <div
     onClick={() => onToggleSolo(rowKey)}
     title="Click to show only this on the plan (click again to unfilter)"
@@ -50,7 +50,7 @@ export const TakeoffRow = ({ rowKey, main, value, sub, subRight, active, dimmed,
     }}
   >
     <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-      <Swatch rowKey={rowKey} color={color} onChange={onSelectColor} />
+      <Swatch rowKey={colorKey} color={color} onChange={onSelectColor} />
       <span style={{ fontSize: 12, fontWeight: 700, flex: 1 }}>{main}</span>
       <span style={{ fontFamily: mono, fontSize: 13, color: COLORS.accent }}>{value}</span>
     </div>
@@ -62,3 +62,4 @@ export const TakeoffRow = ({ rowKey, main, value, sub, subRight, active, dimmed,
     )}
   </div>
 );
+

@@ -8,10 +8,10 @@ export const footOf = (w) => (w.footing ? w.footing : { w: defFootW(w.thickness)
 let _id = 1;
 export const nid = () => _id++;
 
-export const wallKey = (w) => {
-  const f = footOf(w);
-  return `wall|${w.thickness}|${w.depth}|${f.w}|${f.h}|${w.lengthBasis || "centerline"}`;
-};
+export const wallColorKey = (w) => `wall-color|${w.thickness}|${w.depth}`;
+export const wallKey = (w) => `wall|${w.thickness}|${w.depth}|${w.lengthBasis || "centerline"}`;
+export const footingColorKey = (w) => { const f = footOf(w); return `footing-color|${f.w}|${f.h}`; };
+export const footingKey = (w) => { const f = footOf(w); return `footing|${f.w}|${f.h}|${w.lengthBasis || "centerline"}`; };
 export const padKey = (p) => `pad|${p.w}x${p.l}x${p.d}`;
 export const winKey = (w) => `win|${w.kind}|${w.width}`;
 export const areaKey = (a) => `area|${a.id}`;

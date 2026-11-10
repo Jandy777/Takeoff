@@ -1,6 +1,6 @@
 import * as THREE from "three";
 import { wallLen, wallPolygon, wallSubPoly, openingHFor, windowPose, pointSegDist } from "../geometry";
-import { footOf, wallKey, padKey, winKey, areaKey } from "../model";
+import { footOf, wallKey, wallColorKey, footingKey, footingColorKey, padKey, winKey, areaKey } from "../model";
 import { shade } from "../color";
 
 const SELECTED_COLOR = "#ff8a3d";
@@ -30,7 +30,6 @@ export function buildScene(group, { walls, pads, windows, areas, drains = [], le
   const topY = walls.reduce((m, w) => {
     const len = wallLen(w);
     if (len < 0.01) return m;
-    if (!shown(wallKey(w))) return m;
     return Math.max(m, footOf(w).h / 12 + w.depth);
   }, 0);
 
@@ -38,16 +37,18 @@ export function buildScene(group, { walls, pads, windows, areas, drains = [], le
     const len = wallLen(w);
     if (len < 0.01) return;
     const key = wallKey(w);
-    if (!shown(key)) return;
+    const wallVisible = shown(key), footingVisible = shown(footingKey(w));
+    if (!wallVisible && !footingVisible) return;
     const f = footOf(w);
     const fhFt = f.h / 12;
     const baseY = topY - w.depth; // bottom of wall / top of footing, varies per wall
     const selMat = sel && sel.type === "wall" && sel.id === w.id;
-    const col = selMat ? SELECTED_COLOR : rowColor(key);
+    const col = selMat ? SELECTED_COLOR : rowColor(wallColorKey(w));
+    const footingCol = rowColor(footingColorKey(w));
     const widthOfWall = (q) => q.thickness / 12;
     const mat = () => new THREE.MeshLambertMaterial({ color: cInt(col) });
     const addPiece = (poly, h, bottom = baseY) => {
-      if (!poly || h < 0.05) return;
+      if (!wallVisible || !poly || h < 0.05) return;
       const geo = mkGeo(poly, h);
       const mesh = new THREE.Mesh(geo, mat());
       mesh.rotation.x = -Math.PI / 2;
@@ -120,9 +121,9 @@ export function buildScene(group, { walls, pads, windows, areas, drains = [], le
     }
 
     const fPoly = wallPolygon(w, walls, (q) => footOf(q).w / 12);
-    if (fPoly) {
+    if (fPoly && footingVisible) {
       const footGeo = mkGeo(fPoly, fhFt);
-      const footMesh = new THREE.Mesh(footGeo, new THREE.MeshLambertMaterial({ color: cInt(shade(col, 0.65)) }));
+      const footMesh = new THREE.Mesh(footGeo, new THREE.MeshLambertMaterial({ color: cInt(footingCol) }));
       footMesh.rotation.x = -Math.PI / 2;
       footMesh.position.y = baseY - fhFt;
       group.add(footMesh);

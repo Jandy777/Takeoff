@@ -22,8 +22,13 @@ const {
   resolveDrainRuns,
   ledgeOnWallFace,
   resolveLedges,
+  parseLength,
+  formatFtIn,
 } = await server.ssrLoadModule("/src/foundation/geometry.js");
 const { computeTakeoff } = await server.ssrLoadModule("/src/foundation/takeoff.js");
+const { wallKey, wallColorKey, footingKey, footingColorKey } = await server.ssrLoadModule("/src/foundation/model.js");
+const { hashColor } = await server.ssrLoadModule("/src/foundation/color.js");
+const { selectInBox, selectionDocument, moveSelection, deleteSelection, toggleSelection } = await server.ssrLoadModule("/src/foundation/selection.js");
 const THREE = await import("three");
 const { buildScene } = await server.ssrLoadModule("/src/foundation/render3d/buildScene.js");
 
@@ -47,6 +52,12 @@ const makeRun = (vertices, basis = "outside") => vertices.map((a, i) => {
 });
 
 try {
+  closeTo(parseLength(`15'7.5"`), 15 + 7.5 / 12, "direct feet and half-inch entry");
+  closeTo(parseLength(`15'-7.5"`), 15 + 7.5 / 12, "displayed feet and half-inch entry");
+  closeTo(parseLength('7.5"'), 7.5 / 12, "inches-only entry");
+  closeTo(parseLength("15.5833"), 15.5833, "decimal feet entry");
+  assert.equal(parseLength("15'-bad"), null, "invalid dimensions are not silently treated as feet");
+  assert.equal(formatFtIn(15 + 7.5 / 12), `15'-7.5"`, "half inches remain visible");
   for (const [name, vertices] of [
     ["clockwise", [{ x: 0, y: 0 }, { x: 0, y: 15 }, { x: 15, y: 15 }, { x: 15, y: 0 }]],
     ["counterclockwise", [{ x: 0, y: 0 }, { x: 15, y: 0 }, { x: 15, y: 15 }, { x: 0, y: 15 }]],
@@ -75,6 +86,40 @@ try {
   const square = centerlineClosedWallRun(makeRun([
     { x: 0, y: 0 }, { x: 15, y: 0 }, { x: 15, y: 15 }, { x: 0, y: 15 },
   ]), "outside");
+  const differentFooting = { ...square[1], footing: { w: 20, h: 8 } };
+  assert.equal(wallKey(square[0]), wallKey(differentFooting), "footing size does not split wall row");
+  assert.equal(wallColorKey(square[0]), wallColorKey(differentFooting), "same wall uses same color");
+  assert.notEqual(footingKey(square[0]), footingKey(differentFooting), "different footings have separate rows");
+  assert.notEqual(hashColor(footingColorKey(square[0])), hashColor(footingColorKey(differentFooting)), "typical different footing sizes get distinct colors");
+  const splitFootings = computeTakeoff({ walls: [square[0], differentFooting], wallGeometry: square, pads: [], windows: [], areas: [] });
+  assert.equal(splitFootings.wallRows.length, 1, "same wall sizes roll up together");
+  assert.equal(splitFootings.footingRows.length, 2, "different footing sizes roll up independently");
+  const isolated = new THREE.Group();
+  buildScene(isolated, { walls: [square[0]], pads: [], windows: [], areas: [] }, null, (key) => key === footingKey(square[0]), hashColor);
+  assert.equal(isolated.children.filter((child) => child.isMesh).length, 1, "footing row isolates only the footing in 3D");
+  buildScene(isolated, { walls: [square[0]], pads: [], windows: [], areas: [] }, null, (key) => key === wallKey(square[0]), hashColor);
+  assert.equal(isolated.children.filter((child) => child.isMesh).length, 1, "wall row isolates only the wall in 3D");
+  const selectionDoc = { walls: square, pads: [{ id: 50, x: 5, y: 5, w: 24, l: 24, d: 12 }], windows: [{ id: 51, wallId: square[0].id, t: 0.5, width: 32, kind: "peek" }], areas: [], dims: [], drains: [], ledges: [] };
+  const hits = selectInBox(selectionDoc, { x: -2, y: -2 }, { x: 17, y: 17 });
+  assert.equal(hits.length, 6, "box selects walls, pad, and attached window");
+  const crossing = selectInBox(selectionDoc, { x: 2, y: -0.1 }, { x: 3, y: 1 });
+  assert.ok(crossing.some((item) => item.type === "wall" && item.id === square[0].id), "box selects part of a wall without its endpoints");
+  const insidePad = selectInBox(selectionDoc, { x: 4.9, y: 4.9 }, { x: 5.1, y: 5.1 });
+  assert.ok(insidePad.some((item) => item.type === "pad" && item.id === 50), "box contained inside pad selects it");
+  const reversed = selectInBox(selectionDoc, { x: 3, y: 1 }, { x: 2, y: -0.1 });
+  assert.deepEqual(reversed, crossing, "selection works in either drag direction");
+  const twoClicks = toggleSelection([{ type: "wall", id: 1 }], { type: "pad", id: 50 });
+  assert.equal(twoClicks.length, 2, "shift-click adds an item");
+  assert.deepEqual(toggleSelection(twoClicks, { type: "wall", id: 1 }), [{ type: "pad", id: 50 }], "shift-click removes an item");
+  assert.equal(selectionDocument(selectionDoc, hits).walls.length, 4, "group BOM uses selected walls");
+  const movedGroup = moveSelection(selectionDoc, hits, 3, 4);
+  assert.ok(movedGroup.doc, "complete foundation group can move");
+  closeTo(movedGroup.doc.walls[0].x1, square[0].x1 + 3, "group wall moves once");
+  closeTo(movedGroup.doc.pads[0].y, 9, "group pad moves");
+  assert.equal(movedGroup.doc.windows[0].t, 0.5, "attached window stays on wall");
+  assert.ok(moveSelection(selectionDoc, [hits.find((h) => h.type === "wall")], 1, 1).error, "partial connected wall move is blocked");
+  const deletedGroup = deleteSelection(selectionDoc, hits);
+  assert.equal(deletedGroup.walls.length + deletedGroup.pads.length + deletedGroup.windows.length, 0, "group deletion removes selected entities");
   const resized = resizeWallToMeasuredLength(1, square, 16, "outside");
   const faceSnap = snapToWallFace(7.5, 0.05, square, 0.2);
   assert.ok(faceSnap, "drain anchor snaps to wall face");

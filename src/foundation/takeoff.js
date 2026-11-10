@@ -1,22 +1,28 @@
 import { wallMeasuredLen, shoelace, dist } from "./geometry";
-import { footOf, wallKey, padKey, winKey, areaKey } from "./model";
+import { footOf, wallKey, wallColorKey, footingKey, footingColorKey, padKey, winKey, areaKey } from "./model";
 
 // Pure rollup of a document's entities into the grouped rows shown in the
 // takeoff panel. Kept free of React so it can be unit tested and reused
 // (e.g. for export/print) without mounting the editor.
-export function computeTakeoff({ walls, pads, windows, areas, drains = [], ledges = [] }) {
+export function computeTakeoff({ walls, pads, windows, areas, drains = [], ledges = [], wallGeometry = walls }) {
   const wallGroups = new Map();
+  const footingGroups = new Map();
   let totalLF = 0;
   for (const w of walls) {
     const f = footOf(w);
     const key = wallKey(w);
     const basis = w.lengthBasis || "centerline";
-    const len = wallMeasuredLen(w, walls, basis);
+    const len = wallMeasuredLen(w, wallGeometry, basis);
     totalLF += len;
-    if (!wallGroups.has(key)) wallGroups.set(key, { key, thickness: w.thickness, depth: w.depth, fw: f.w, fh: f.h, basis, len: 0, count: 0 });
+    if (!wallGroups.has(key)) wallGroups.set(key, { key, colorKey: wallColorKey(w), thickness: w.thickness, depth: w.depth, basis, len: 0, count: 0 });
     const g = wallGroups.get(key);
     g.len += len;
     g.count++;
+    const fk = footingKey(w);
+    if (!footingGroups.has(fk)) footingGroups.set(fk, { key: fk, colorKey: footingColorKey(w), width: f.w, height: f.h, basis, len: 0, count: 0 });
+    const fg = footingGroups.get(fk);
+    fg.len += len;
+    fg.count++;
   }
   const padGroups = new Map();
   for (const p of pads) {
@@ -46,6 +52,7 @@ export function computeTakeoff({ walls, pads, windows, areas, drains = [], ledge
   }
   return {
     wallRows: [...wallGroups.values()].sort((a, b) => a.thickness - b.thickness || a.depth - b.depth),
+    footingRows: [...footingGroups.values()].sort((a, b) => a.width - b.width || a.height - b.height),
     padRows: [...padGroups.values()].sort((a, b) => a.w - b.w || a.l - b.l),
     winRows: [...winGroups.values()].sort((a, b) => a.kind.localeCompare(b.kind) || a.width - b.width),
     areaRows,

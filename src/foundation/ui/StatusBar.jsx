@@ -10,7 +10,7 @@ function hintFor({ mode, start, sel, pendingWin, winSpec, areaMode, rulerPt }) {
         ? "Click to place endpoint — or type a length + Enter · right-click ends the run · hold Alt to ignore snap"
         : "Click to start a wall run";
     case "select":
-      return sel ? "Drag to move · Delete removes · edit in the panel" : "Click any wall, footing, pad, window, or area to select · drag empty space to pan";
+      return "Click to edit · Shift-click to add/remove · drag a box to select touched items · middle-drag to pan";
     case "pad":
       return "Click to stamp pads · right-click when done";
     case "window":

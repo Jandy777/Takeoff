@@ -72,6 +72,22 @@ try {
     return React.createElement("span", null, "Signed out safely");
   }
   assert.match(renderToStaticMarkup(React.createElement(SignedOutAccount)), /Signed out safely/, "the initial null session and membership must render without crashing");
+  const { accountPermissions } = await server.ssrLoadModule("/src/foundation/library/permissions.js");
+  const externalMember = { user_id: "external-test", email: "tester@example.invalid", role: "estimator", external_role_approved: true, access_enabled: true, registration_complete: true };
+  assert.equal(accountPermissions(externalMember, "external-test").canEdit, true, "an administrator-approved external editor can use the drawing tools");
+  assert.equal(accountPermissions({ ...externalMember, role: "admin" }, "external-test").isAdmin, true, "an approved external administrator can manage team access");
+  assert.equal(accountPermissions({ ...externalMember, role: "viewer" }, "external-test").canEdit, false);
+  assert.equal(accountPermissions({ ...externalMember, external_role_approved: false }, "external-test").canEdit, false, "external editing requires the protected owner approval");
+  assert.equal(accountPermissions({ ...externalMember, role: "admin", is_owner: true }, "external-test").isOwner, true);
+  assert.equal(accountPermissions({ ...externalMember, access_enabled: false }, "external-test").canEdit, false);
+  assert.equal(accountPermissions({ ...externalMember, registration_complete: false }, "external-test").canEdit, false);
+  assert.equal(accountPermissions(externalMember, "different-user").canEdit, false, "a previous session's membership cannot grant access");
+  const { TeamMemberRow } = await server.ssrLoadModule("/src/foundation/ui/TakeoffTeam.jsx");
+  const teamRow = renderToStaticMarkup(React.createElement(TeamMemberRow, { member: externalMember, currentUserId: "owner-test", canManageExternal: true, busy: false, onPermission() {}, onToggleAccess() {} }));
+  assert.ok(!teamRow.match(/<select[^>]*>/)[0].includes("disabled"), "an external user's role selector is available to the administrator");
+  for (const role of ["Administrator", "Estimator", "Viewer"]) assert.ok(teamRow.includes(role));
+  const nonOwnerRow = renderToStaticMarkup(React.createElement(TeamMemberRow, { member: externalMember, currentUserId: "other-admin-test", canManageExternal: false, busy: false, onPermission() {}, onToggleAccess() {} }));
+  assert.ok(nonOwnerRow.match(/<select[^>]*>/)[0].includes("disabled"), "personal-email overrides are limited to the owner");
   const { TakeoffSignIn } = await server.ssrLoadModule("/src/foundation/ui/TakeoffSignIn.jsx");
   const signupHtml = renderToStaticMarkup(React.createElement(TakeoffSignIn, { account: { recovery: false, error: "" } }));
   assert.ok(signupHtml.includes("Existing West Suburban employee? Click here"));

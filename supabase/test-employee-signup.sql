@@ -35,8 +35,7 @@ do $$ begin
     insert into public.team_access(email,role) values('takeoff-duplicate-signup-test@concretews.com','estimator');
     raise exception 'The same employee was approved twice';
   exception when raise_exception then if SQLERRM not like '%already has an approved account%' then raise; end if; end;
-  begin insert into public.team_access(email,role) values('takeoff-signup-test@example.invalid','estimator'); raise exception 'External address could receive editing';
-  exception when check_violation then null; end;
+  if (select role from public.team_members where user_id=current_setting('takeoff.signup_external')::uuid)<>'viewer' then raise exception 'An external account gained editing without administrator action'; end if;
 end $$;
 set local role authenticated;
 select set_config('request.jwt.claims',jsonb_build_object('sub',current_setting('takeoff.signup_employee'),'role','authenticated')::text,true);

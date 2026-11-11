@@ -26,6 +26,8 @@ with employee self-registration and verified viewer accounts. `social-signin.sql
 records the earlier Microsoft setup. `simple-signup.sql` supersedes automatic
 employee elevation: all new accounts start as viewers, and administrators grant
 editing after registration. It also revokes the earlier self-service role RPC.
+`admin-managed-roles.sql` then lets the protected owner account grant individual
+role exceptions to registered accounts with personal email addresses.
 Microsoft sign-in is no longer part of the product flow. Applied changes
 are recorded in Supabase migration history. These are references, not scripts to
 rerun over an existing database.
@@ -43,10 +45,14 @@ rerun over an existing database.
   User approval of automatic external viewing is part of this access model.
 - `team_access` holds administrator-managed role overrides. Entries made before
   registration do not automatically grant a new account editing permissions.
-  Non-company addresses cannot receive editing or administrative roles.
+  The owner can explicitly assign Viewer, Estimator, or Administrator to
+  registered accounts from any email domain. Other administrators retain the
+  company-domain restriction for elevated roles. External signups remain viewers
+  until the owner approves their role. Protected `is_owner` and
+  `external_role_approved` columns cannot be edited by app clients.
 - `team_members` links roles to stable Auth user IDs. The private role helper
   reads this authoritative table plus the actual Auth email, so
-  disabling access or changing to a non-company address takes effect without
+  disabling access or changing an account's email takes effect without
   waiting for JWT role claims to expire. User-editable metadata cannot change
   an established role or claim another employee after registration.
 - Admin: team access plus drawing editing. Estimator: drawing editing. Viewer:
@@ -60,7 +66,8 @@ rerun over an existing database.
   disabled. Password resets still depend on email delivery and its recipient
   restrictions; immediate signup does not solve password-reset delivery.
 - Google handles its own sign-in verification and does not need Takeoff emails.
-  Personal Google accounts receive viewer access.
+  Personal Google accounts begin with viewer access; the owner can
+  explicitly grant additional permissions after registration.
 
 ## Google setup
 
@@ -111,6 +118,9 @@ field-release workflow is a separate future feature.
 - `test-social-signin.sql`: Google-style viewer accounts and revocation of the
   earlier employee elevation endpoint.
   All fixtures roll back; it does not simulate the provider's actual login.
+- `test-admin-managed-roles.sql`: external default viewing, owner-only editor and
+  administrator grants, protected ownership, role revocation, Auth synchronization, and final-admin
+  protection. All fixtures roll back.
 
 The `.tools/library-preview.html` page is an ignored local UI fixture with
 sample data. It is not part of the production build and has no cloud access.

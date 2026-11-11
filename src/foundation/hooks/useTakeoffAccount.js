@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useState } from "react";
 import { supabase, initialAuthNotice, loadAuthProviders } from "../library/supabase";
 import { authReturnUrl } from "../library/authReturn";
-import { employeeSignupData, isWorkEmail } from "../library/employeeSignup";
+import { employeeSignupData } from "../library/employeeSignup";
 import { socialSignInRequest } from "../library/socialAuth";
+import { accountPermissions } from "../library/permissions";
 
 export function useTakeoffAccount() {
   const [session, setSession] = useState(null);
@@ -59,13 +60,14 @@ export function useTakeoffAccount() {
       const { data, error } = await supabase.auth.getUser();
       if (!live || error || !data.user) return;
       setSession((previous) => previous?.user.id === data.user.id ? { ...previous, user: data.user } : previous);
+      await refreshMember();
     };
     const refresh = () => { refreshUser().catch(() => {}); };
     window.addEventListener("focus", refresh);
     document.addEventListener("visibilitychange", refresh);
     refresh();
     return () => { live = false; window.removeEventListener("focus", refresh); document.removeEventListener("visibilitychange", refresh); };
-  }, [session?.user.id]);
+  }, [session?.user.id, refreshMember]);
 
   async function socialSignIn(provider) {
     if (!supabase || !providers?.[provider]) throw new Error("Google sign-in is not connected yet.");
@@ -92,15 +94,12 @@ export function useTakeoffAccount() {
     return signup && !result.data.session ? "Check your email to confirm your account. Then return here to sign in." : mode === "reset" ? "If this account exists, a password reset link will be sent to its email address." : "";
   }
 
-  const currentMember = member && session?.user.id && member.user_id === session.user.id && member.access_enabled !== false && member.registration_complete !== false ? member : null;
-  return { session, member: currentMember, loading, error, recovery, notice, dismissNotice: () => setNotice(null), authenticate, refreshMember, providers, providerError, socialSignIn,
+  return { session, ...accountPermissions(member, session?.user.id), loading, error, recovery, notice, dismissNotice: () => setNotice(null), authenticate, refreshMember, providers, providerError, socialSignIn,
     changeEmail: async (email) => {
       const result = await supabase.auth.updateUser({ email: email.trim().toLowerCase() }, { emailRedirectTo: authReturnUrl(window.location) });
       if (result.error) throw new Error(result.error.message);
       return "Check both email inboxes for confirmation links. Your sign-in email will change after Supabase confirms the request.";
     },
-    canEdit: isWorkEmail(session?.user.email) && ["admin", "estimator"].includes(currentMember?.role),
-    isAdmin: isWorkEmail(session?.user.email) && currentMember?.role === "admin",
     signOut: async () => { const { error } = await supabase.auth.signOut(); if (error) throw error; setMember(null); },
   };
 }

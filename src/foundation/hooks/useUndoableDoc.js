@@ -1,15 +1,24 @@
 import { useCallback, useRef, useState } from "react";
 import { clone } from "../geometry";
-import { EMPTY_DOC } from "../model";
+import { EMPTY_DOC, reserveEntityIds } from "../model";
 
 // Owns the document (walls/pads/windows/areas/dims) plus whole-snapshot undo/redo.
 // Every other hook receives `doc` and `apply` from here rather than touching
 // document state directly, so this stays the single source of truth for mutation.
 export function useUndoableDoc() {
   const [doc, setDoc] = useState(EMPTY_DOC);
+  const [documentKey, setDocumentKey] = useState(0);
 
   const undoRef = useRef([]);
   const redoRef = useRef([]);
+
+  const loadDocument = useCallback((next) => {
+    reserveEntityIds(next);
+    undoRef.current = [];
+    redoRef.current = [];
+    setDoc(clone(next));
+    setDocumentKey((value) => value + 1);
+  }, []);
 
   const pushUndo = useCallback((snapshot) => {
     undoRef.current.push(clone(snapshot));
@@ -47,5 +56,6 @@ export function useUndoableDoc() {
     apply(() => clone(EMPTY_DOC));
   }, [apply]);
 
-  return { doc, setDoc, apply, pushUndo, doUndo, doRedo, clearDoc };
+  return { doc, setDoc, apply, pushUndo, doUndo, doRedo, clearDoc, loadDocument, documentKey };
 }
+

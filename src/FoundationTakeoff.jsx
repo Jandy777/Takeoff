@@ -1,4 +1,4 @@
-import React, { useMemo, useRef, useState } from "react";
+import React, { useCallback, useMemo, useRef, useState } from "react";
 import { flushSync } from "react-dom";
 import { COLORS } from "./foundation/constants";
 import { collectFitPoints, resolveDrainRuns, resolveLedges } from "./foundation/geometry";
@@ -19,6 +19,11 @@ import { selectionDocument } from "./foundation/selection";
 import { computeTakeoff } from "./foundation/takeoff";
 import { capturePrintView } from "./foundation/render3d/capturePrintView";
 import { PrintSheet } from "./foundation/ui/PrintSheet";
+import { useTakeoffAccount } from "./foundation/hooks/useTakeoffAccount";
+import { useDrawingLibrary } from "./foundation/hooks/useDrawingLibrary";
+import { DrawingLibrary, DrawingFileBar } from "./foundation/ui/DrawingLibrary";
+import { DrawingViewerToolbar } from "./foundation/ui/DrawingViewerToolbar";
+import { usePlanTouchNavigation } from "./foundation/hooks/usePlanTouchNavigation";
 
 // Orchestrator only: wires the document/view/interaction hooks together and
 // composes the presentational pieces. New tools/panels should be built as
@@ -29,6 +34,7 @@ export default function FoundationTakeoff() {
   const [showFootings, setShowFootings] = useState(false);
   const [printSnapshot, setPrintSnapshot] = useState(null);
   const printSvgRef = useRef(null);
+  const account = useTakeoffAccount();
 
   const docState = useUndoableDoc();
   const doc = useMemo(() => ({ ...docState.doc, drains: resolveDrainRuns(docState.doc.drains, docState.doc.walls), ledges: resolveLedges(docState.doc.ledges, docState.doc.walls) }), [docState.doc]);
@@ -37,8 +43,20 @@ export default function FoundationTakeoff() {
   const visibility = useRowVisibility();
   const snapping = useSnapping(doc.walls, viewport.tf.scale);
 
+  const onLoadDrawing = useCallback((nextDoc, rowColors) => {
+    docState.loadDocument(nextDoc);
+    visibility.setRowColors(rowColors);
+    visibility.setSolo([]);
+    setView("2d");
+    requestAnimationFrame(() => viewport.fitView(collectFitPoints(nextDoc)));
+  }, [docState.loadDocument, visibility.setRowColors, visibility.setSolo, viewport.fitView]);
+  const library = useDrawingLibrary({ account, document: docState.doc, rowColors: visibility.rowColors, onLoad: onLoadDrawing });
+  const viewOnly = !account.canEdit || Boolean(library.active?.locked);
+  const readOnly = viewOnly || library.open || Boolean(library.modal);
+  usePlanTouchNavigation({ enabled: viewOnly && !library.open && view === "2d", ...viewport });
+
   const editor = useEditorInteractions(
-    { ...docState, doc, onClear: () => visibility.setSolo([]) },
+    { ...docState, doc, readOnly, onClear: () => visibility.setSolo([]) },
     viewport,
     snapping
   );
@@ -76,8 +94,9 @@ export default function FoundationTakeoff() {
 
   return (
     <>
-    <div className="takeoff-app" style={{ display: "flex", flexDirection: "column", height: "100vh", background: COLORS.chrome, color: COLORS.text, fontFamily: "ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif" }}>
-      <Toolbar
+    <div className="takeoff-app" {...(library.open || library.modal || !account.member || account.recovery ? { inert: "", "aria-hidden": true } : {})} style={{ display: "flex", flexDirection: "column", height: "100vh", background: COLORS.chrome, color: COLORS.text, fontFamily: "ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif" }}>
+      <DrawingFileBar library={library} account={account} />
+      {viewOnly ? <DrawingViewerToolbar view={view} setView={setView} onFit={onFit} onPrint={onPrint} showFootings={showFootings} setShowFootings={setShowFootings} /> : <Toolbar
         mode={editor.mode} setMode={editor.setMode}
         areaMode={editor.areaMode} setAreaMode={editor.setAreaMode}
         showDims={editor.showDims} setShowDims={editor.setShowDims}
@@ -94,7 +113,7 @@ export default function FoundationTakeoff() {
         doUndo={editor.doUndo} doRedo={editor.doRedo} onFit={onFit}
         clearAll={editor.clearAll} confirmClear={editor.confirmClear}
         view={view} setView={setView}
-      />
+      />}
 
       <div style={{ display: "flex", flex: 1, minHeight: 0 }}>
         <div ref={viewport.wrapRef} style={{ flex: 1, position: "relative", overflow: "hidden", background: COLORS.canvas }}>
@@ -106,7 +125,7 @@ export default function FoundationTakeoff() {
               groupSelection={editor.groupSelection} selectionBox={editor.selectionBox}
               filletFirst={editor.filletFirst}
               rowColor={visibility.rowColor} shown={visibility.shown} showDims={editor.showDims}
-              mode={editor.mode} areaMode={editor.areaMode}
+              mode={readOnly ? "view" : editor.mode} areaMode={editor.areaMode}
               start={editor.start} tracePts={editor.tracePts} rulerPt={editor.rulerPt}
               pendingWin={editor.pendingWin} mouse={editor.mouse} snapInfo={editor.snapInfo}
               curT={editor.curT} curD={editor.curD} winSpec={editor.winSpec}
@@ -123,13 +142,13 @@ export default function FoundationTakeoff() {
             <div ref={threeWrap} style={{ position: "absolute", inset: 0 }} />
           )}
 
-          <PlanOverlays
+          {!readOnly && <PlanOverlays
             view={view} mode={editor.mode} areaMode={editor.areaMode}
             start={editor.start} tracePts={editor.tracePts} typed={editor.typed}
             soloSet={visibility.soloSet} setSolo={visibility.setSolo} toast={editor.toast}
             reference={editor.reference} referenceOffset={editor.referenceOffset} setReferenceOffset={editor.setReferenceOffset}
             referenceError={editor.referenceError} confirmReference={editor.confirmReference} cancelReference={editor.cancelReference}
-          />
+          />}
         </div>
 
         <TakeoffPanel
@@ -151,7 +170,7 @@ export default function FoundationTakeoff() {
 
       <StatusBar
         view={view} mouse={editor.mouse} snapLabel={snapping.snapLabel} altFree={editor.altFree}
-        mode={editor.mode} start={editor.start} sel={editor.sel} pendingWin={editor.pendingWin}
+        mode={viewOnly ? "view" : editor.mode} start={editor.start} sel={editor.sel} pendingWin={editor.pendingWin}
         winSpec={editor.winSpec} areaMode={editor.areaMode} rulerPt={editor.rulerPt}
         filletFirst={editor.filletFirst}
       />
@@ -169,7 +188,8 @@ export default function FoundationTakeoff() {
         mode="select" areaMode="pick" start={null} tracePts={[]} rulerPt={null} pendingWin={null} mouse={null} snapInfo={null}
         curT={8} curD={8} winSpec={{}} wallLengthBasis="outside" drainPts={[]} drainKind="exterior" ledgeStart={null} />
     </div>
-    <PrintSheet snapshot={printSnapshot} takeoff={takeoff} />
+    <PrintSheet snapshot={printSnapshot} takeoff={takeoff} drawing={library.active} />
+    <DrawingLibrary library={library} account={account} hasUnfiledDrawing={!library.active && Object.values(docState.doc).some((items) => Array.isArray(items) && items.length)} />
     </>
   );
 }

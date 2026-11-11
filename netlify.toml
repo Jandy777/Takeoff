@@ -1,0 +1,12 @@
+[build]
+  command = "npm run build"
+  publish = "dist"
+
+[build.environment]
+  NODE_VERSION = "22"
+
+# Public browser configuration. Access is enforced by Supabase Auth and RLS;
+# secret/service-role keys must never be added to VITE_ variables.
+[context.production.environment]
+  VITE_SUPABASE_URL = "https://czjalcygmijkoqplukqt.supabase.co"
+  VITE_SUPABASE_PUBLISHABLE_KEY = "sb_publishable_f-jkoLT9WXlZNWHgypuEDQ_-9cnI9r6"

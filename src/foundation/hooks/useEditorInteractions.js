@@ -16,7 +16,7 @@ import { filletWalls, wallEndNear } from "../fillet";
 // around without reducing it. Pure geometry/model logic it calls lives in
 // ../geometry and ../model; anything reusable outside the editor should be
 // pulled out to there, not grown here.
-export function useEditorInteractions({ doc, apply, pushUndo, doUndo: undo1, doRedo: redo1, clearDoc, setDoc, onClear }, viewport, snapping) {
+export function useEditorInteractions({ doc, apply, pushUndo, doUndo: undo1, doRedo: redo1, clearDoc, setDoc, onClear, readOnly = false, documentKey = 0 }, viewport, snapping) {
   const { tf, toWorld, svgPoint, beginPan, updatePan, endPan } = viewport;
   const { snapTo, snapPreview } = snapping;
   const { walls, pads, windows, areas } = doc;
@@ -72,6 +72,13 @@ export function useEditorInteractions({ doc, apply, pushUndo, doUndo: undo1, doR
   const runWallIdsRef = useRef([]);
   const runBasisRef = useRef("outside");
   const runSideRef = useRef(1);
+
+  useEffect(() => {
+    setStart(null); setRunStart(null); setTracePts([]); setRulerPt(null); setPendingWin(null); setTyped("");
+    setDrainPts([]); setLedgeStart(null); setReference(null); setFilletFirst(null);
+    setSel(null); setGroupSelection([]); setSelectionBox(null); setModal(null); setSnapInfo(null);
+    runWallIdsRef.current = []; dragRef.current = null; dragEntRef.current = null; boxRef.current = null; groupDragRef.current = null;
+  }, [documentKey, readOnly]);
 
   // Footing bands never participate in drawing snaps. While adding a branch,
   // snap to the actual faces of existing walls; the current run keeps its own
@@ -272,6 +279,7 @@ export function useEditorInteractions({ doc, apply, pushUndo, doUndo: undo1, doR
   const onMouseDown = useCallback(
     (e) => {
       const [sx, sy] = svgPoint(e);
+      if (readOnly) { if (e.button === 0 || e.button === 1) beginPan(sx, sy); e.preventDefault(); return; }
       if (e.button === 1) {
         beginPan(sx, sy);
         e.preventDefault();
@@ -510,13 +518,14 @@ export function useEditorInteractions({ doc, apply, pushUndo, doUndo: undo1, doR
         setSelectionBox({ a: { x: wx, y: wy }, b: { x: wx, y: wy } });
       }
     },
-    [svgPoint, beginPan, tf, mode, areaMode, rulerPt, pendingWin, toWorld, commitWallPoint, wallDrawSnap, snapPreview, start, apply, snapTo, padSpec, slabSpec, textSpec, winSpec, walls, areas, sel, doc, hitTest, closeTrace, commitTracePoint, tracePts, showToast, drainPts, finishDrain, ledgeStart, ledgeSize, ledgeKind, ledges, groupSelection, reference, cancelReference, filletFirst]
+    [readOnly, svgPoint, beginPan, tf, mode, areaMode, rulerPt, pendingWin, toWorld, commitWallPoint, wallDrawSnap, snapPreview, start, apply, snapTo, padSpec, slabSpec, textSpec, winSpec, walls, areas, sel, doc, hitTest, closeTrace, commitTracePoint, tracePts, showToast, drainPts, finishDrain, ledgeStart, ledgeSize, ledgeKind, ledges, groupSelection, reference, cancelReference, filletFirst]
   );
 
   const onMouseMove = useCallback(
     (e) => {
       const [sx, sy] = svgPoint(e);
       if (updatePan(sx, sy)) return;
+      if (readOnly) return;
 
       const [wx, wy] = toWorld(sx, sy);
       setMouse({ x: wx, y: wy });
@@ -615,7 +624,7 @@ export function useEditorInteractions({ doc, apply, pushUndo, doUndo: undo1, doR
       else if (mode === "window") setSnapInfo(pendingWin ? null : findWallSnap(wx, wy, walls, Math.max(16 / tf.scale, 2)));
       else setSnapInfo(null);
     },
-    [svgPoint, updatePan, toWorld, tf.scale, snapTo, walls, setDoc, mode, wallDrawSnap, snapPreview, start, rulerPt, areaMode, tracePts, pendingWin, drainPts, showToast, reference]
+    [readOnly, svgPoint, updatePan, toWorld, tf.scale, snapTo, walls, setDoc, mode, wallDrawSnap, snapPreview, start, rulerPt, areaMode, tracePts, pendingWin, drainPts, showToast, reference]
   );
 
   const onMouseUp = useCallback(() => {
@@ -683,6 +692,7 @@ export function useEditorInteractions({ doc, apply, pushUndo, doUndo: undo1, doR
   // ---------- keyboard ----------
   useEffect(() => {
     const onKey = (e) => {
+      if (readOnly) return;
       const tag = (e.target.tagName || "").toLowerCase();
       if (tag === "input" || tag === "textarea" || tag === "select") return;
 
@@ -738,7 +748,7 @@ export function useEditorInteractions({ doc, apply, pushUndo, doUndo: undo1, doR
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [mode, areaMode, start, tracePts, typed, snapInfo, mouse, sel, doUndo, doRedo, commitWallPoint, commitTracePoint, closeTrace, deleteSel, finishDrain, groupSelection, reference, cancelReference]);
+  }, [readOnly, mode, areaMode, start, tracePts, typed, snapInfo, mouse, sel, doUndo, doRedo, commitWallPoint, commitTracePoint, closeTrace, deleteSel, finishDrain, groupSelection, reference, cancelReference]);
 
   // mode switching side effects
   useEffect(() => {

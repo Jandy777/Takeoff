@@ -8,6 +8,13 @@ export const footOf = (w) => (w.footing ? w.footing : { w: defFootW(w.thickness)
 let _id = 1;
 export const nid = () => _id++;
 
+// Opening a saved document must not reuse an existing entity's identifier.
+export function reserveEntityIds(doc) {
+  for (const items of Object.values(doc)) if (Array.isArray(items)) for (const item of items) {
+    if (Number.isSafeInteger(item?.id)) _id = Math.max(_id, item.id + 1);
+  }
+}
+
 export const wallColorKey = (w) => `wall-color|${w.thickness}|${w.depth}`;
 export const wallKey = (w) => `wall|${w.thickness}|${w.depth}|${w.lengthBasis || "centerline"}`;
 export const footingColorKey = (w) => { const f = footOf(w); return `footing-color|${f.w}|${f.h}`; };

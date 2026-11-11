@@ -36,7 +36,7 @@ export function PlanCanvas({
   return (
     <svg
       ref={svgRef} width={size.w} height={size.h}
-      style={{ display: "block", cursor: mode === "select" ? "default" : "crosshair", userSelect: "none" }}
+      style={{ display: "block", cursor: mode === "view" ? "grab" : mode === "select" ? "default" : "crosshair", userSelect: "none", touchAction: mode === "view" ? "none" : "auto" }}
       onMouseDown={onMouseDown} onMouseMove={onMouseMove} onMouseUp={onMouseUp} onMouseLeave={onMouseUp}
       onWheel={onWheel} onContextMenu={(e) => e.preventDefault()}
     >

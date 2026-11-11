@@ -67,8 +67,9 @@ export function useViewport(view) {
       minY = Math.min(minY, y); maxY = Math.max(maxY, y);
     });
     const pad = 40;
-    const scale = Math.min(120, Math.max(1.5, Math.min((size.w - pad * 2) / Math.max(1, maxX - minX), (size.h - pad * 2) / Math.max(1, maxY - minY))));
-    setTf({ scale, ox: size.w / 2 - ((minX + maxX) / 2) * scale, oy: size.h / 2 - ((minY + maxY) / 2) * scale });
+    const width = wrapRef.current?.clientWidth || size.w, height = wrapRef.current?.clientHeight || size.h;
+    const scale = Math.min(120, Math.max(1.5, Math.min((width - pad * 2) / Math.max(1, maxX - minX), (height - pad * 2) / Math.max(1, maxY - minY))));
+    setTf({ scale, ox: width / 2 - ((minX + maxX) / 2) * scale, oy: height / 2 - ((minY + maxY) / 2) * scale });
   }, [size]);
 
   return {
@@ -78,3 +79,4 @@ export function useViewport(view) {
     onWheel, fitView,
   };
 }
+

@@ -5,6 +5,7 @@
   "author": "West Suburban Concrete",
   "license": "MIT",
   "dependencies": {
+    "@supabase/supabase-js": "2.119.0",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
     "three": "^0.128.0"
@@ -16,8 +17,7 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "test": "node scripts/test-geometry.mjs",
+    "test": "node scripts/test-geometry.mjs && node scripts/test-library.mjs",
     "preview": "vite preview"
   }
 }
-

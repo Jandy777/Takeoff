@@ -82,6 +82,15 @@ try {
   reserveEntityIds(reopened);
   assert.ok(nid() > 5502, "new items do not reuse identifiers after reopening a drawing");
   const { DrawingDetailsCard } = await server.ssrLoadModule("/src/foundation/ui/DrawingDetailsCard.jsx");
+  const { useTakeoffAccount } = await server.ssrLoadModule("/src/foundation/hooks/useTakeoffAccount.js");
+  function SignedOutAccount() {
+    const account = useTakeoffAccount();
+    assert.equal(account.member, null);
+    assert.equal(account.canEdit, false);
+    assert.equal(account.isAdmin, false);
+    return React.createElement("span", null, "Signed out safely");
+  }
+  assert.match(renderToStaticMarkup(React.createElement(SignedOutAccount)), /Signed out safely/, "the initial null session and membership must render without crashing");
   const { TakeoffSignIn } = await server.ssrLoadModule("/src/foundation/ui/TakeoffSignIn.jsx");
   const signupHtml = renderToStaticMarkup(React.createElement(TakeoffSignIn, { account: { recovery: false, error: "" } }));
   assert.ok(signupHtml.includes("Existing West Suburban employee? Click here"));

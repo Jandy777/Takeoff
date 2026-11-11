@@ -106,7 +106,7 @@ export function useTakeoffAccount() {
     return signup && !result.data.session ? "Check your email to confirm your account. Then return here to sign in." : mode === "reset" ? "If this account exists, a password reset link will be sent to its email address." : "";
   }
 
-  const currentMember = member?.user_id === session?.user.id && member.access_enabled !== false && member.registration_complete !== false ? member : null;
+  const currentMember = member && session?.user.id && member.user_id === session.user.id && member.access_enabled !== false && member.registration_complete !== false ? member : null;
   return { session, member: currentMember, loading, error, recovery, notice, dismissNotice: () => setNotice(null), authenticate, refreshMember, providers, providerError, socialSignIn,
     changeEmail: async (email) => {
       const result = await supabase.auth.updateUser({ email: email.trim().toLowerCase() }, { emailRedirectTo: authReturnUrl(window.location) });

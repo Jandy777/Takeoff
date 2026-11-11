@@ -58,6 +58,7 @@ export function TakeoffSignIn({ account }) {
         {currentMode !== "employee" && <button className="employee-start" type="button" disabled={busy} onClick={() => switchMode("employee")}>Existing West Suburban employee? Click here</button>}
         {currentMode === "signin" ? <><button type="button" disabled={busy} onClick={() => switchMode("create")}>Create a view-only account</button><button type="button" disabled={busy} onClick={() => switchMode("reset")}>Forgot password?</button></> : <button type="button" disabled={busy} onClick={() => switchMode("signin")}>Already have an account? Sign in</button>}
       </div>}
+      <p className="auth-policy-links"><a href="/privacy.html">Privacy policy</a><span aria-hidden="true">·</span><a href="/terms.html">Terms of use</a></p>
     </form>
   </div>;
 }

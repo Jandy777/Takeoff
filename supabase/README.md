@@ -54,8 +54,8 @@ rerun over an existing database.
 - Changing an approved account's email preserves its Auth user ID and drawings,
   but requires new administrator approval for editing. The final active admin
   cannot accidentally remove their own access this way.
-- Email/password signup supports disabling Supabase's Confirm email setting
-  for immediate access. Since that removes email ownership verification, editing
+- Email/password signup has Supabase's Confirm email setting disabled
+  for immediate access, as approved by the administrator. Since that removes email ownership verification, editing
   requires an administrator action on an existing account. Custom SMTP remains
   disabled. Password resets still depend on email delivery and its recipient
   restrictions; immediate signup does not solve password-reset delivery.
@@ -80,6 +80,8 @@ The app returns to `/index.html` on the origin where sign-in started, including
   can sign in without being added as individual test users. Enter its client
   ID and secret in Supabase's Google provider. Google Cloud project: Takeoff
   (`united-pier-514416-h0`).
+  Public disclosure pages are `/privacy.html` and `/terms.html` and are linked
+  from signup. These are factual descriptions of the current shared-library flow.
 
 Provider activation and an actual account round-trip must be verified before
 calling Google ready. Existing password sign-in remains available.

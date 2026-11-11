@@ -1,7 +1,7 @@
 import { EMPTY_DOC } from "../model";
 
-export const DETAIL_FIELDS = ["customer_name", "project_name", "print_revision", "model_name", "elevation", "job_type"];
-export const BLANK_DETAILS = { customer_name: "", project_name: "", print_revision: "", model_name: "", elevation: "", job_type: "custom" };
+export const DETAIL_FIELDS = ["customer_name", "project_name", "city", "estimator_name", "print_revision", "model_name", "elevation", "job_type"];
+export const BLANK_DETAILS = { customer_name: "", project_name: "", city: "", estimator_name: "", print_revision: "", model_name: "", elevation: "", job_type: "custom" };
 
 export function cleanDetails(details) {
   const result = Object.fromEntries(DETAIL_FIELDS.map((key) => [key, String(details[key] || "").trim()]));

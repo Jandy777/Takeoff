@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState } from "react";
 import { BLANK_DETAILS } from "../library/documents";
 
 export function DrawingDetailsCard({ kind, active, drawings, busy, error, onClose, onSubmit }) {
-  const [details, setDetails] = useState(() => kind === "details" ? { ...active } : kind === "revise" ? { ...active, print_revision: "" } : { ...BLANK_DETAILS });
+  const [details, setDetails] = useState(() => kind === "details" ? { ...BLANK_DETAILS, ...active } : kind === "revise" ? { ...BLANK_DETAILS, ...active, print_revision: "" } : { ...BLANK_DETAILS });
   const card = useRef(null);
   const first = useRef(null);
   useEffect(() => {
@@ -31,6 +31,8 @@ export function DrawingDetailsCard({ kind, active, drawings, busy, error, onClos
       <div className="drawing-form-grid">
         <label className="full">Customer name <span>*</span><input ref={first} required maxLength={160} value={details.customer_name} onChange={update("customer_name")} list="drawing-customers" autoComplete="off" placeholder="Builder or homeowner" disabled={busy} /></label>
         <label className="full">Project name <span>*</span><input required maxLength={160} value={details.project_name} onChange={update("project_name")} list="drawing-projects" autoComplete="off" placeholder={details.job_type === "tract" ? "Subdivision or development" : "Job name or address"} disabled={busy} /></label>
+        <label>City <small>optional</small><input maxLength={160} value={details.city} onChange={update("city")} placeholder="e.g. Naperville" autoComplete="address-level2" disabled={busy} /></label>
+        <label>Estimator name <small>optional</small><input maxLength={160} value={details.estimator_name} onChange={update("estimator_name")} placeholder="Estimator’s name" disabled={busy} /></label>
         <label className="full">Print date / revision <span>*</span><input required maxLength={160} value={details.print_revision} onChange={update("print_revision")} placeholder="e.g. 11/11/2026 · Rev 2" disabled={busy} /></label>
         <label>Model name <small>optional</small><input maxLength={160} value={details.model_name} onChange={update("model_name")} placeholder={details.job_type === "tract" ? "e.g. The Aspen" : "Model, if applicable"} disabled={busy} /></label>
         <label>Elevation <small>optional</small><input maxLength={160} value={details.elevation} onChange={update("elevation")} placeholder="e.g. A, B, or Craftsman" disabled={busy} /></label>

@@ -7,6 +7,7 @@ export function PrintSheet({ snapshot, takeoff, drawing }) {
   return <section className="print-sheet">
     <header><h1>Foundation Takeoff</h1><span>Drawing and quantity summary</span></header>
     {drawing && <p><strong>{drawing.customer_name} · {drawing.project_name}</strong><br />{[drawing.model_name, drawing.elevation && `Elevation ${drawing.elevation}`, drawing.print_revision].filter(Boolean).join(" · ")}</p>}
+    {drawing && (drawing.city || drawing.estimator_name) && <p>{[drawing.city, drawing.estimator_name && `Estimator: ${drawing.estimator_name}`].filter(Boolean).join(" · ")}</p>}
     <div className="print-views">
       <div><h2>2D Plan</h2><div className="print-plan" dangerouslySetInnerHTML={{ __html: snapshot.plan }} /></div>
       <div><h2>3D View</h2><img src={snapshot.three} alt="3D foundation view" /></div>

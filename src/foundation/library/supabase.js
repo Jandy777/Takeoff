@@ -6,7 +6,7 @@ const key = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
 export const initialAuthNotice = typeof window === "undefined" ? null : authReturnNotice(window.location.href);
 export const supabase = url && key ? createClient(url, key) : null;
 
-export const SUMMARY_COLUMNS = "id,customer_name,project_name,print_revision,model_name,elevation,job_type,parent_id,locked,version,created_at,updated_at";
+export const SUMMARY_COLUMNS = "id,customer_name,project_name,city,estimator_name,print_revision,model_name,elevation,job_type,parent_id,locked,version,created_at,updated_at";
 function checked(result) {
   if (result.error) throw new Error(result.error.message);
   return result.data;

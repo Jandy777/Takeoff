@@ -75,6 +75,8 @@ create table public.drawings (
   id uuid primary key default gen_random_uuid(),
   customer_name text not null check (length(trim(customer_name)) between 1 and 160),
   project_name text not null check (length(trim(project_name)) between 1 and 160),
+  city text not null default '' check(length(city) <= 160),
+  estimator_name text not null default '' check(length(estimator_name) <= 160),
   print_revision text not null check (length(trim(print_revision)) between 1 and 160),
   model_name text not null default '' check(length(model_name) <= 160),
   elevation text not null default '' check(length(elevation) <= 160),
@@ -140,8 +142,8 @@ begin
     update public.drawings set locked = true where id = source_id and version = expected_version returning * into source;
     if not found then raise exception 'This drawing changed. Open the latest version before creating a revision.'; end if;
   end if;
-  insert into public.drawings(customer_name,project_name,print_revision,model_name,elevation,job_type,parent_id,document,settings)
-  values(details->>'customer_name',details->>'project_name',details->>'print_revision',coalesce(details->>'model_name',''),coalesce(details->>'elevation',''),coalesce(details->>'job_type','custom'),source_id,source.document,source.settings)
+  insert into public.drawings(customer_name,project_name,city,estimator_name,print_revision,model_name,elevation,job_type,parent_id,document,settings)
+  values(details->>'customer_name',details->>'project_name',coalesce(details->>'city',source.city),coalesce(details->>'estimator_name',source.estimator_name),details->>'print_revision',coalesce(details->>'model_name',''),coalesce(details->>'elevation',''),coalesce(details->>'job_type','custom'),source_id,source.document,source.settings)
   returning * into result;
   return result;
 end $$;

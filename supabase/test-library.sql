@@ -18,8 +18,8 @@ select set_config('request.jwt.claims', jsonb_build_object('sub', current_settin
 do $$
 declare item public.drawings; next_item public.drawings; affected integer;
 begin
-  insert into public.drawings(customer_name,project_name,print_revision,model_name,elevation,job_type,document)
-  values('Test Builder','Shared Development','Rev 1','Aspen','A','tract','{"walls":[],"pads":[]}'::jsonb) returning * into item;
+  insert into public.drawings(customer_name,project_name,city,estimator_name,print_revision,model_name,elevation,job_type,document)
+  values('Test Builder','Shared Development','Naperville','Jake','Rev 1','Aspen','A','tract','{"walls":[],"pads":[]}'::jsonb) returning * into item;
   perform set_config('takeoff.test_drawing',item.id::text,true);
   update public.drawings set document = '{"walls":[],"pads":[],"texts":[{"id":1,"text":"Saved note"}]}'::jsonb where id=item.id and version=1;
   update public.drawings set elevation='SHOULD NOT SAVE' where id=item.id and version=1;
@@ -27,15 +27,18 @@ begin
   if affected <> 0 then raise exception 'Stale save overwrote a newer drawing'; end if;
   select * into item from public.drawings where id=item.id;
   if item.version <> 2 or item.elevation <> 'A' then raise exception 'Save/reload version check failed'; end if;
+  if item.city <> 'Naperville' or item.estimator_name <> 'Jake' then raise exception 'City and estimator did not survive save/reload'; end if;
   select * into next_item from public.new_drawing_revision(item.id,2,'{"customer_name":"Test Builder","project_name":"Shared Development","print_revision":"Rev 2","model_name":"Aspen","elevation":"A","job_type":"tract"}');
   if next_item.id = item.id or next_item.document <> item.document then raise exception 'Revision was not an independent complete copy'; end if;
+  if next_item.city <> 'Naperville' or next_item.estimator_name <> 'Jake' then raise exception 'City and estimator did not carry into the new revision'; end if;
   if not (select locked from public.drawings where id=item.id) then raise exception 'Previous revision was not preserved'; end if;
   update public.drawings set elevation='SHOULD NOT SAVE' where id=item.id;
   get diagnostics affected = row_count;
   if affected <> 0 then raise exception 'Preserved revision was editable'; end if;
   -- A preserved revision can also be used as the source of a new draft.
-  select * into next_item from public.new_drawing_revision(item.id,3,'{"customer_name":"Test Builder","project_name":"Shared Development","print_revision":"Alternate","model_name":"Aspen","elevation":"B","job_type":"tract"}');
+  select * into next_item from public.new_drawing_revision(item.id,3,'{"customer_name":"Test Builder","project_name":"Shared Development","city":"Aurora","estimator_name":"Casey","print_revision":"Alternate","model_name":"Aspen","elevation":"B","job_type":"tract"}');
   if next_item.elevation <> 'B' then raise exception 'Alternate elevation failed'; end if;
+  if next_item.city <> 'Aurora' or next_item.estimator_name <> 'Casey' then raise exception 'New revision did not save changed city and estimator'; end if;
   begin
     update public.team_members set role='admin' where user_id=auth.uid();
     raise exception 'Estimator could change their own access';

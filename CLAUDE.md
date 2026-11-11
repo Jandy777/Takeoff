@@ -21,8 +21,20 @@ src/foundation/
                         defaults, the wall/pad/window/area grouping keys used
                         by both the takeoff panel and the row-color/solo system.
   takeoff.js           computeTakeoff(doc) — pure rollup into the panel rows.
+  fillet.js            Trim/extend selected wall ends into a joined corner.
+  selection.js         Box selection, grouped document subsets, move/delete.
+
+  library/             Drawing serialization, Supabase repository, auth-return
+                        helpers, employee signup requests, and protected-role
+                        interpretation. Database policies enforce authorization.
 
   hooks/
+    useTakeoffAccount  Auth session, current membership, owner/admin permissions,
+                        sign-in and account actions. Refreshes access on focus.
+    useDrawingLibrary  Cloud autosave, revisions, optimistic version checks,
+                        local recovery drafts, and JSON backup export.
+    usePlanTouchNavigation
+                        One-finger pan and pinch zoom in the read-only plan.
     useUndoableDoc      Owns `doc` + snapshot undo/redo. The only place that
                         should call setDoc directly outside a drag gesture.
     useViewport         Pan/zoom transform, SVG sizing, fit-to-view.
@@ -117,6 +129,17 @@ stated job.**
 
 ## Verifying changes
 
-No test suite is configured. After a change, at minimum run `npm run build`
-to catch import/compile errors, and manually exercise the affected tool in
-`npm run dev` (draw/select/undo, or the 3D view if `render3d/` changed).
+Run `npm test` for the geometry/library checks and `npm run build` for
+production compilation after behavior changes. Manually exercise the affected
+flow too (draw/select/undo, 3D, or library/team access as appropriate).
+
+For database or permission changes, use the relevant transactional
+`supabase/test-*.sql` checks; fixtures must roll back. See `supabase/README.md`
+for the applied-schema references and account model. Those schema reference
+files are not scripts to rerun over an existing project. Never treat signup
+metadata as a role or owner approval.
+
+The current feature inventory, dimension rules, local startup commands, and
+known limitations are in `README.md`. Keep it aligned with shipped behavior;
+do not describe unfinished provider setup or planned tools as available.
+

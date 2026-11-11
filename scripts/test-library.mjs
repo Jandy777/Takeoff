@@ -5,6 +5,42 @@ import { renderToStaticMarkup } from "react-dom/server";
 
 const server = await createServer({ configFile: false, root: process.cwd(), cacheDir: ".tools/vite-test-cache", logLevel: "silent", appType: "custom", resolve: { preserveSymlinks: true }, server: { middlewareMode: true } });
 try {
+  const { EMPLOYEES, isWorkEmail, employeeSignupData } = await server.ssrLoadModule("/src/foundation/library/employeeSignup.js");
+  assert.deepEqual(EMPLOYEES.map((employee) => employee.name), ["Hector Reyes", "Don Baggio", "Steve Martin", "Scott Martin", "Chuck Atkinson", "Randy Guenther", "Eric O'Neil"]);
+  assert.equal(new Set(EMPLOYEES.map((employee) => employee.id)).size, 7);
+  assert.equal(isWorkEmail(" HECTOR@CONCRETEWS.COM "), true);
+  for (const address of ["hector@gmail.com", "hector@concretews.com.attacker.test", "hector@other@concretews.com", "hector@notconcretews.com"]) {
+    assert.equal(isWorkEmail(address), false);
+    assert.throws(() => employeeSignupData(address, "hector-reyes"), /work email/);
+  }
+  assert.deepEqual(employeeSignupData("hector@concretews.com", "hector-reyes"), { employee_id: "hector-reyes" });
+  assert.throws(() => employeeSignupData("hector@concretews.com", "admin"), /employee list/);
+  const { readAuthProviders, socialSignInRequest, saveEmployeeReturn, takeEmployeeReturn, completeEmployeeReturn } = await server.ssrLoadModule("/src/foundation/library/socialAuth.js");
+  const storageValues = new Map();
+  const storage = { setItem: (key, value) => storageValues.set(key, value), getItem: (key) => storageValues.get(key) || null, removeItem: (key) => storageValues.delete(key) };
+  saveEmployeeReturn(storage, " HECTOR@CONCRETEWS.COM ", "hector-reyes", 100);
+  const pending = takeEmployeeReturn(storage, 200);
+  assert.equal(pending.email, "hector@concretews.com");
+  assert.equal(takeEmployeeReturn(storage, 201), null, "employee choice is consumed once");
+  saveEmployeeReturn(storage, "hector@concretews.com", "hector-reyes", 100);
+  assert.equal(takeEmployeeReturn(storage, 3600101), null, "abandoned sign-in choices expire");
+  const claims = [];
+  const client = { rpc: async (...args) => { claims.push(args); return { error: null }; } };
+  await assert.rejects(completeEmployeeReturn(client, pending, { email: "hector@gmail.com" }), /different email/);
+  await assert.rejects(completeEmployeeReturn(client, pending, { email: "other@concretews.com" }), /different email/);
+  assert.equal(claims.length, 0, "an account-switch cannot accidentally claim the chosen employee");
+  await completeEmployeeReturn(client, pending, { email: "hector@concretews.com" });
+  assert.deepEqual(claims, [["claim_employee_account", { requested_employee: "hector-reyes" }]]);
+  await assert.rejects(completeEmployeeReturn({ rpc: async () => ({ error: { message: "This employee already has an account." } }) }, pending, { email: pending.email }), /already has an account/);
+  const microsoftRequest = socialSignInRequest("azure", "https://take0ff.netlify.app/index.html", pending.email);
+  assert.equal(microsoftRequest.options.scopes, "email", "Microsoft must return an email for Supabase verification");
+  assert.equal(microsoftRequest.options.queryParams.login_hint, pending.email);
+  assert.equal(microsoftRequest.options.redirectTo, "https://take0ff.netlify.app/index.html");
+  assert.equal(microsoftRequest.options.skipBrowserRedirect, true, "save the employee choice before redirecting");
+  assert.equal(socialSignInRequest("google", "https://take0ff.netlify.app/index.html").provider, "google");
+  assert.throws(() => socialSignInRequest("unknown", "https://take0ff.netlify.app/index.html"));
+  assert.deepEqual(await readAuthProviders("https://example.invalid", "public-test-key", async () => ({ ok: true, json: async () => ({ external: { azure: true, google: false } }) })), { google: false, azure: true });
+  await assert.rejects(readAuthProviders("https://example.invalid", "public-test-key", async () => ({ ok: false })), /could not be loaded/);
   const { authReturnNotice, authReturnUrl } = await server.ssrLoadModule("/src/foundation/library/authReturn.js");
   const expired = authReturnNotice("http://127.0.0.1:4176/#error=access_denied&error_code=otp_expired&error_description=Email+link+is+invalid+or+has+expired&sb=");
   assert.equal(expired.kind, "warning");
@@ -46,6 +82,14 @@ try {
   reserveEntityIds(reopened);
   assert.ok(nid() > 5502, "new items do not reuse identifiers after reopening a drawing");
   const { DrawingDetailsCard } = await server.ssrLoadModule("/src/foundation/ui/DrawingDetailsCard.jsx");
+  const { TakeoffSignIn } = await server.ssrLoadModule("/src/foundation/ui/TakeoffSignIn.jsx");
+  const signupHtml = renderToStaticMarkup(React.createElement(TakeoffSignIn, { account: { recovery: false, error: "" } }));
+  assert.ok(signupHtml.includes("Existing West Suburban employee? Click here"));
+  assert.ok(signupHtml.includes("Create a view-only account"));
+  assert.ok(signupHtml.includes("Continue with Microsoft"));
+  assert.ok(signupHtml.includes("Continue with Google"));
+  const unconnectedHtml = renderToStaticMarkup(React.createElement(TakeoffSignIn, { account: { recovery: false, error: "", providers: { azure: false, google: false } } }));
+  assert.ok(unconnectedHtml.includes("Google sign-in is being connected."));
   const html = renderToStaticMarkup(React.createElement(DrawingDetailsCard, { kind: "create", drawings: [], busy: false, error: "", onClose() {}, onSubmit() {} }));
   for (const field of ["Customer name", "Project name", "City", "Estimator name", "Print date / revision", "Model name", "Elevation"]) assert.ok(html.includes(field), `${field} appears on the creation card`);
   console.log("Library tests passed: metadata, tract variants, search, complete drawing round-trip, colors, anchors, loaded IDs, and creation form.");

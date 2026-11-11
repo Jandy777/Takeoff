@@ -1,10 +1,12 @@
 import { createClient } from "@supabase/supabase-js";
 import { authReturnNotice } from "./authReturn";
+import { readAuthProviders } from "./socialAuth";
 
 const url = import.meta.env.VITE_SUPABASE_URL;
 const key = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
 export const initialAuthNotice = typeof window === "undefined" ? null : authReturnNotice(window.location.href);
 export const supabase = url && key ? createClient(url, key) : null;
+export const loadAuthProviders = () => readAuthProviders(url, key);
 
 export const SUMMARY_COLUMNS = "id,customer_name,project_name,city,estimator_name,print_revision,model_name,elevation,job_type,parent_id,locked,version,created_at,updated_at";
 function checked(result) {

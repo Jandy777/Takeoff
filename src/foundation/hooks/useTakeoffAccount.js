@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useState } from "react";
-import { supabase, initialAuthNotice } from "../library/supabase";
+import { supabase, initialAuthNotice, loadAuthProviders } from "../library/supabase";
 import { authReturnUrl } from "../library/authReturn";
+import { employeeSignupData, isWorkEmail } from "../library/employeeSignup";
+import { clearEmployeeReturn, completeEmployeeReturn, saveEmployeeReturn, socialSignInRequest, takeEmployeeReturn } from "../library/socialAuth";
 
 export function useTakeoffAccount() {
   const [session, setSession] = useState(null);
@@ -9,6 +11,16 @@ export function useTakeoffAccount() {
   const [error, setError] = useState("");
   const [recovery, setRecovery] = useState(false);
   const [notice, setNotice] = useState(initialAuthNotice);
+  const [providers, setProviders] = useState(null);
+  const [providerError, setProviderError] = useState("");
+
+  useEffect(() => {
+    if (!supabase) return;
+    let live = true;
+    loadAuthProviders().then((value) => { if (live) setProviders(value); })
+      .catch((e) => { if (live) setProviderError(e.message); });
+    return () => { live = false; };
+  }, []);
 
   useEffect(() => {
     if (!supabase) return;
@@ -31,6 +43,13 @@ export function useTakeoffAccount() {
     if (!session?.user.id) { setMember(null); return; }
     setLoading(true);
     try {
+      let pending;
+      try { pending = takeEmployeeReturn(window.sessionStorage); } catch { /* Password sign-in works when browser storage is unavailable. */ }
+      if (pending) {
+        try {
+          await completeEmployeeReturn(supabase, pending, session.user);
+        } catch (e) { setNotice({ kind: "warning", message: e.message }); }
+      }
       const result = await supabase.from("team_members").select("*").eq("user_id", session.user.id).maybeSingle();
       if (result.error) throw result.error;
       setMember(result.data);
@@ -55,28 +74,47 @@ export function useTakeoffAccount() {
     return () => { live = false; window.removeEventListener("focus", refresh); document.removeEventListener("visibilitychange", refresh); };
   }, [session?.user.id]);
 
-  async function authenticate(mode, email, password) {
+  async function socialSignIn(provider, email = "", employeeId = "") {
+    if (!supabase || !providers?.[provider]) throw new Error(`${provider === "azure" ? "Microsoft" : "Google"} sign-in is not connected yet.`);
+    if (employeeId) employeeSignupData(email, employeeId);
+    const result = await supabase.auth.signInWithOAuth(socialSignInRequest(provider, authReturnUrl(window.location), email));
+    if (result.error) throw new Error(result.error.message);
+    if (!result.data?.url) throw new Error("Sign-in could not be started. Please try again.");
+    try {
+      if (employeeId) saveEmployeeReturn(window.sessionStorage, email, employeeId);
+      else clearEmployeeReturn(window.sessionStorage);
+    } catch {
+      if (employeeId) throw new Error("Allow browser storage for Takeoff so your employee selection can be remembered during Microsoft sign-in.");
+    }
+    window.location.assign(result.data.url);
+  }
+
+  async function authenticate(mode, email, password, employeeId) {
     if (!supabase) throw new Error("Cloud storage has not been configured on this copy of Takeoff.");
     const redirectTo = authReturnUrl(window.location);
     let result;
-    if (mode === "create") result = await supabase.auth.signUp({ email, password, options: { emailRedirectTo: redirectTo } });
+    const signup = mode === "create" || mode === "employee";
+    if (signup) result = await supabase.auth.signUp({ email: email.trim().toLowerCase(), password, options: { emailRedirectTo: redirectTo, data: mode === "employee" ? employeeSignupData(email, employeeId) : {} } });
     else if (mode === "reset") result = await supabase.auth.resetPasswordForEmail(email, { redirectTo });
     else if (mode === "password") result = await supabase.auth.updateUser({ password });
     else result = await supabase.auth.signInWithPassword({ email, password });
-    if (result.error) throw new Error(result.error.message);
+    if (result.error) {
+      const deliveryUnavailable = result.error.code === "email_address_not_authorized" || /email address not authorized/i.test(result.error.message);
+      throw new Error(signup && deliveryUnavailable ? "We couldn’t send your confirmation email yet. Please contact your Takeoff administrator to finish email setup." : result.error.message);
+    }
     if (mode === "password") setRecovery(false);
-    return mode === "create" && !result.data.session ? "Check your email to confirm your account. Then return here to sign in." : mode === "reset" ? "If this account exists, a password reset link will be sent to its email address." : "";
+    return signup && !result.data.session ? "Check your email to confirm your account. Then return here to sign in." : mode === "reset" ? "If this account exists, a password reset link will be sent to its email address." : "";
   }
 
-  const currentMember = member?.user_id === session?.user.id ? member : null;
-  return { session, member: currentMember, loading, error, recovery, notice, dismissNotice: () => setNotice(null), authenticate, refreshMember,
+  const currentMember = member?.user_id === session?.user.id && member.access_enabled !== false && member.registration_complete !== false ? member : null;
+  return { session, member: currentMember, loading, error, recovery, notice, dismissNotice: () => setNotice(null), authenticate, refreshMember, providers, providerError, socialSignIn,
     changeEmail: async (email) => {
       const result = await supabase.auth.updateUser({ email: email.trim().toLowerCase() }, { emailRedirectTo: authReturnUrl(window.location) });
       if (result.error) throw new Error(result.error.message);
       return "Check both email inboxes for confirmation links. Your sign-in email will change after Supabase confirms the request.";
     },
-    canEdit: ["admin", "estimator"].includes(currentMember?.role),
-    isAdmin: currentMember?.role === "admin",
+    canEdit: isWorkEmail(session?.user.email) && ["admin", "estimator"].includes(currentMember?.role),
+    isAdmin: isWorkEmail(session?.user.email) && currentMember?.role === "admin",
     signOut: async () => { const { error } = await supabase.auth.signOut(); if (error) throw error; setMember(null); },
   };
 }

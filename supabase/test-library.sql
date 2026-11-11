@@ -5,13 +5,13 @@ select set_config('takeoff.test_estimator', gen_random_uuid()::text, true);
 select set_config('takeoff.test_viewer', gen_random_uuid()::text, true);
 select set_config('takeoff.test_outsider', gen_random_uuid()::text, true);
 insert into public.team_access(email,role) values
-  ('takeoff-admin-test@example.invalid','admin'),
-  ('takeoff-estimator-test@example.invalid','estimator'),
-  ('takeoff-viewer-test@example.invalid','viewer');
+  ('takeoff-admin-test@concretews.com','admin'),
+  ('takeoff-estimator-test@concretews.com','estimator'),
+  ('takeoff-viewer-test@concretews.com','viewer');
 insert into auth.users(id,email,aud,role,email_confirmed_at,created_at,updated_at) values
-  (current_setting('takeoff.test_admin')::uuid,'takeoff-admin-test@example.invalid','authenticated','authenticated',now(),now(),now()),
-  (current_setting('takeoff.test_estimator')::uuid,'takeoff-estimator-test@example.invalid','authenticated','authenticated',now(),now(),now()),
-  (current_setting('takeoff.test_viewer')::uuid,'takeoff-viewer-test@example.invalid','authenticated','authenticated',now(),now(),now()),
+  (current_setting('takeoff.test_admin')::uuid,'takeoff-admin-test@concretews.com','authenticated','authenticated',now(),now(),now()),
+  (current_setting('takeoff.test_estimator')::uuid,'takeoff-estimator-test@concretews.com','authenticated','authenticated',now(),now(),now()),
+  (current_setting('takeoff.test_viewer')::uuid,'takeoff-viewer-test@concretews.com','authenticated','authenticated',now(),now(),now()),
   (current_setting('takeoff.test_outsider')::uuid,'takeoff-outsider-test@example.invalid','authenticated','authenticated',now(),now(),now());
 set local role authenticated;
 select set_config('request.jwt.claims', jsonb_build_object('sub', current_setting('takeoff.test_estimator'), 'role','authenticated')::text, true);
@@ -44,7 +44,7 @@ begin
     raise exception 'Estimator could change their own access';
   exception when insufficient_privilege then null; end;
   begin
-    insert into public.team_access(email,role) values('unauthorized@example.invalid','admin');
+    insert into public.team_access(email,role) values('unauthorized@concretews.com','admin');
     raise exception 'Estimator could add an administrator';
   exception when insufficient_privilege then null; end;
 end $$;
@@ -61,8 +61,21 @@ do $$ declare affected integer; begin
   if exists(select 1 from public.team_access) then raise exception 'Viewer can read allowed account list'; end if;
 end $$;
 select set_config('request.jwt.claims', jsonb_build_object('sub', current_setting('takeoff.test_outsider'), 'role','authenticated')::text, true);
+do $$ declare affected integer; begin
+  if not exists(select 1 from public.drawings) then raise exception 'Verified external signup cannot view drawings'; end if;
+  update public.drawings set elevation='SHOULD NOT SAVE' where not locked;
+  get diagnostics affected = row_count;
+  if affected <> 0 then raise exception 'External viewer could edit'; end if;
+  begin
+    insert into public.drawings(customer_name,project_name,print_revision,document) values('Wrong','Wrong','Wrong','{}');
+    raise exception 'External viewer could create';
+  exception when insufficient_privilege then null; end;
+end $$;
+select set_config('request.jwt.claims', jsonb_build_object('sub', current_setting('takeoff.test_admin'), 'role','authenticated')::text, true);
+update public.team_members set access_enabled=false where user_id=current_setting('takeoff.test_outsider')::uuid;
+select set_config('request.jwt.claims', jsonb_build_object('sub', current_setting('takeoff.test_outsider'), 'role','authenticated')::text, true);
 do $$ begin
-  if exists(select 1 from public.drawings) then raise exception 'Unapproved account can read drawings'; end if;
+  if exists(select 1 from public.drawings) then raise exception 'Disabled viewer still has access'; end if;
 end $$;
 set local role anon;
 do $$ begin

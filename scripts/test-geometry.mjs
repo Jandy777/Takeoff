@@ -13,10 +13,12 @@ const server = await createServer({
 
 const {
   centerlineClosedWallRun,
+  centerlineOpenWallRun,
   detectClearRegion,
   shoelace,
   resizeWallToMeasuredLength,
   wallFaceLengths,
+  wallPolygon,
   wallMeasuredLen,
   snapToWallFace,
   resolveDrainRuns,
@@ -25,6 +27,9 @@ const {
   parseLength,
   formatFtIn,
   slabCorners,
+  referenceFaceAt,
+  referencePointAtDistance,
+  wallTopologySegments,
 } = await server.ssrLoadModule("/src/foundation/geometry.js");
 const { computeTakeoff } = await server.ssrLoadModule("/src/foundation/takeoff.js");
 const { wallKey, wallColorKey, footingKey, footingColorKey } = await server.ssrLoadModule("/src/foundation/model.js");
@@ -32,6 +37,7 @@ const { hashColor } = await server.ssrLoadModule("/src/foundation/color.js");
 const { selectInBox, selectionDocument, moveSelection, deleteSelection, toggleSelection } = await server.ssrLoadModule("/src/foundation/selection.js");
 const THREE = await import("three");
 const { buildScene } = await server.ssrLoadModule("/src/foundation/render3d/buildScene.js");
+const { filletWalls, wallEndNear } = await server.ssrLoadModule("/src/foundation/fillet.js");
 
 const closeTo = (actual, expected, label) => {
   assert.ok(Math.abs(actual - expected) < 1e-6, `${label}: expected ${expected}, received ${actual}`);
@@ -53,6 +59,22 @@ const makeRun = (vertices, basis = "outside") => vertices.map((a, i) => {
 });
 
 try {
+  for (const thickness of [8, 10]) for (const side of [1, -1]) {
+    const xs = 5 + 8 / 12, jog = [
+      { id: 901, x1: 0, y1: 0, x2: xs, y2: 0 },
+      { id: 902, x1: xs, y1: 0, x2: xs, y2: 1 },
+      { id: 903, x1: xs, y1: 1, x2: xs + 12, y2: 1 },
+      { id: 904, x1: xs + 12, y1: 1, x2: xs + 12, y2: 0 },
+      { id: 905, x1: xs + 12, y1: 0, x2: xs * 2 + 12, y2: 0 },
+    ].map((w) => ({ ...w, thickness, depth: 8, pendingFace: true, traceSide: side, lengthBasis: "outside" }));
+    const centered = centerlineOpenWallRun(jog, side);
+    assert.ok(centered, "open face-drawn jog converts to centerlines");
+    const expectedLengths = [xs, 1, 12, 1, xs];
+    for (let index = 0; index < centered.length; index++) closeTo(wallFaceLengths(centered[index], centered, (w) => w.thickness / 12).outside, expectedLengths[index], "open jog shows entered face dimension");
+    const firstFace = wallPolygonForTest(centered[0], centered, side, 0);
+    const lastFace = wallPolygonForTest(centered[4], centered, side, 1);
+    closeTo(lastFace.x - firstFace.x, 23 + 4 / 12, "open jog outside overall width remains 23 feet 4 inches");
+  }
   closeTo(parseLength(`15'7.5"`), 15 + 7.5 / 12, "direct feet and half-inch entry");
   closeTo(parseLength(`15'-7.5"`), 15 + 7.5 / 12, "displayed feet and half-inch entry");
   closeTo(parseLength('7.5"'), 7.5 / 12, "inches-only entry");
@@ -87,6 +109,56 @@ try {
   const square = centerlineClosedWallRun(makeRun([
     { x: 0, y: 0 }, { x: 15, y: 0 }, { x: 15, y: 15 }, { x: 0, y: 15 },
   ]), "outside");
+  const tenFoot = centerlineClosedWallRun(makeRun([{ x: 0, y: 0 }, { x: 10, y: 0 }, { x: 10, y: 10 }, { x: 0, y: 10 }]), "outside");
+  const pending = makeRun([{ x: 0, y: 0 }, { x: 10, y: 0 }, { x: 10, y: 10 }, { x: 0, y: 10 }]).map((w) => ({ ...w, pendingFace: true }));
+  pending[3].y2 = 2;
+  const filletDoc = { walls: pending, windows: [], wings: [], ledges: [], drains: [] };
+  assert.equal(wallEndNear(pending[3], 0, 2.2), 2, "fillet chooses clicked wall end");
+  const closed = filletWalls(filletDoc, { id: pending[3].id, end: 2 }, { id: pending[0].id, end: 1 });
+  assert.ok(closed.closedFaceLoop, "fillet closes pending face-drawn box");
+  for (const w of closed.walls) closeTo(wallFaceLengths(w, closed.walls, (q) => q.thickness / 12).outside, 10, "filleted box outside dimension");
+  closeTo(Math.abs(shoelace(detectClearRegion(closed.walls, 5, 5))), (10 - 16 / 12) ** 2, "filleted box interior area");
+  assert.ok(closed.walls.every((w) => !w.pendingFace), "closed footprint no longer awaits conversion");
+  const faceDraft = pending.map((w) => ({ ...w, traceSide: 1 }));
+  const alreadyCentered = centerlineOpenWallRun(faceDraft, 1);
+  const closedCentered = filletWalls({ ...filletDoc, walls: alreadyCentered }, { id: pending[3].id, end: 2 }, { id: pending[0].id, end: 1 });
+  assert.ok(closedCentered.closedFaceLoop, "fillet recognizes an already offset face-drawn run");
+  for (const w of closedCentered.walls) closeTo(wallFaceLengths(w, closedCentered.walls, (q) => q.thickness / 12).outside, 10, "fillet does not offset a face-drawn wall twice");
+  const trimDoc = { walls: [{ id: 11, x1: 0, y1: 0, x2: 12, y2: 0 }, { id: 12, x1: 10, y1: -2, x2: 10, y2: 5 }], windows: [], wings: [], ledges: [], drains: [] };
+  const trim = filletWalls(trimDoc, { id: 11, end: 2 }, { id: 12, end: 1 });
+  closeTo(trim.walls[0].x2, 10, "fillet trims past intersection");
+  closeTo(trim.walls[1].y1, 0, "fillet trims second wall to same corner");
+  assert.ok(filletWalls({ ...trimDoc, walls: [{ ...trimDoc.walls[0] }, { ...trimDoc.walls[1], x1: 0, y1: 1, x2: 12, y2: 1 }] }, { id: 11, end: 2 }, { id: 12, end: 1 }).error, "parallel walls are rejected");
+  assert.ok(filletWalls({ ...trimDoc, windows: [{ wallId: 11 }] }, { id: 11, end: 2 }, { id: 12, end: 1 }).error, "fillet protects wall attachments");
+  const face = referenceFaceAt({ x: 0, y: 0 }, 4, 0.02, tenFoot, 0.2);
+  assert.ok(face, "reference direction finds the selected outside face");
+  const midpoint = referencePointAtDistance(face, 5);
+  closeTo(midpoint.x, 5, "reference start is 5 feet from outside corner");
+  closeTo(midpoint.y, 0, "reference start remains on outside face");
+  const halfInch = referencePointAtDistance(face, parseLength(`5'6.5"`));
+  closeTo(halfInch.x, 5 + 6.5 / 12, "reference offset accepts feet and half-inches");
+  const reverseFace = referenceFaceAt({ x: 10, y: 0 }, 6, 0.02, tenFoot, 0.2);
+  closeTo(referencePointAtDistance(reverseFace, 3).x, 7, "reference works from the opposite corner");
+  assert.equal(referencePointAtDistance(face, 11), null, "offset beyond selected face is rejected");
+  assert.equal(referenceFaceAt({ x: 0, y: 0 }, 5, 5, tenFoot, 0.1), null, "direction must follow an incident face");
+  const garageWalls = [
+    { id: 200, x1: 5, y1: 0, x2: 5, y2: -8, thickness: 8, depth: 8 },
+    { id: 201, x1: 5, y1: -8, x2: 9, y2: -8, thickness: 8, depth: 8 },
+    { id: 202, x1: 9, y1: -8, x2: 9, y2: 0, thickness: 8, depth: 8 },
+  ];
+  const sharedFoundation = [...tenFoot, ...garageWalls];
+  const topology = wallTopologySegments(sharedFoundation);
+  assert.equal(topology.filter((s) => s.wallId === tenFoot[0].id).length, 3, "shared host is divided virtually at both garage junctions");
+  closeTo(garageWalls[0].y1, 0, "branch retains its physical wall-face start");
+  const garageClear = detectClearRegion(sharedFoundation, 7, -4);
+  assert.ok(garageClear, "garage enclosed area recognizes face-contact T junctions");
+  closeTo(Math.abs(shoelace(garageClear)), (4 - 8 / 12) * (8 - 4 / 12), "garage area measures to actual inside wall faces");
+  const basementClear = detectClearRegion(sharedFoundation, 5, 5);
+  assert.ok(basementClear, "existing basement remains an enclosed area");
+  closeTo(Math.abs(shoelace(basementClear)), (10 - 16 / 12) ** 2, "garage junctions do not change basement inside area");
+  const detachedGarage = garageWalls.map((wall) => ({ ...wall }));
+  detachedGarage[0].y1 = -0.1;
+  assert.equal(detectClearRegion([...tenFoot, ...detachedGarage], 7, -4), null, "visible gap does not become a connected garage area");
   const newItems = {
     walls: square, pads: [], windows: [], areas: [], dims: [], drains: [], ledges: [],
     slabs: [{ id: 101, x: 4, y: 4, w: 24, l: 120, d: 12 }, { id: 102, x: 8, y: 8, w: 24, l: 120, d: 12 }],
@@ -233,3 +305,7 @@ try {
 }
 
 function distForTest(points) { return Math.hypot(points[1].x - points[0].x, points[1].y - points[0].y); }
+function wallPolygonForTest(wall, walls, side, end) {
+  const face = wallPolygon(wall, walls, (w) => w.thickness / 12);
+  return face[side === 1 ? (end ? 2 : 3) : (end ? 1 : 0)];
+}

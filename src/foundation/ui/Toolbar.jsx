@@ -9,10 +9,13 @@ export function Toolbar({
   curT, setCurT, customT, setCustomT,
   curD, setCurD, customD, setCustomD,
   wallLengthBasis, setWallLengthBasis,
+  faceSide, chooseFaceSide,
+  reference, beginReference,
   drainKind, setDrainKind, drainPts,
   ledgeKind, setLedgeKind, ledgeSize, setLedgeSize, ledgeStart,
   padSpec, winSpec, setModal,
   slabSpec, onPrint,
+  showFootings, setShowFootings,
   doUndo, doRedo, onFit, clearAll, confirmClear,
   view, setView,
 }) {
@@ -23,6 +26,7 @@ export function Toolbar({
       </div>
       <div style={{ display: "flex", gap: 6 }}>
         <Pill active={mode === "draw"} onClick={() => setMode("draw")}>✏ Wall</Pill>
+        <Pill active={mode === "fillet"} onClick={() => setMode("fillet")} title="Join two wall ends at their intersection">Fillet</Pill>
         <Pill active={mode === "select"} onClick={() => setMode("select")}>⬚ Select</Pill>
         <Pill active={mode === "pad"} onClick={() => setMode("pad")}>▦ Pad</Pill>
         <Pill active={mode === "slab"} onClick={() => setMode("slab")}>Thickened slab</Pill>
@@ -89,6 +93,12 @@ export function Toolbar({
           </div>
         </>
       )}
+      {mode === "draw" && <Pill active={!!reference} onClick={beginReference} title="Start a wall at an exact distance from an existing wall-face corner">Reference start</Pill>}
+      {mode === "draw" && wallLengthBasis !== "centerline" && <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+        <Label>Wall side</Label>
+        <Pill active={faceSide === -1} onClick={() => chooseFaceSide(-1)} title="Wall material lies to the left as you draw">Left</Pill>
+        <Pill active={faceSide === 1} onClick={() => chooseFaceSide(1)} title="Wall material lies to the right as you draw">Right</Pill>
+      </div>}
       {mode === "area" && (
         <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
           <Label>Method</Label>
@@ -112,6 +122,7 @@ export function Toolbar({
         <Pill onClick={doUndo} title="Undo (Ctrl+Z)">↶</Pill>
         <Pill onClick={doRedo} title="Redo (Ctrl+Shift+Z)">↷</Pill>
         <Pill onClick={onFit} title="Zoom to drawing">Fit</Pill>
+        <Pill active={showFootings} onClick={() => setShowFootings((v) => !v)} title="Show or hide footing bands in the 2D plan">Footings {showFootings ? "on" : "off"}</Pill>
         <Pill onClick={onPrint} title="Print both views and takeoff">Print</Pill>
         <Pill onClick={clearAll}>{confirmClear ? "Really clear?" : "Clear"}</Pill>
         <div style={{ width: 1, height: 22, background: COLORS.border, margin: "0 4px" }} />

@@ -1,12 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   dist, same, clone, pointSegDist, wallLen, formatFtIn, parseLength,
-  findWallSnap, windowPose, pointInPoly, detectClearRegion, centerlineClosedWallRun,
+  findWallSnap, windowPose, pointInPoly, detectClearRegion, centerlineClosedWallRun, centerlineOpenWallRun,
   wallFaceLengths, wallMeasuredLen, resizeWallToMeasuredLength,
-  snapToWallFace, ledgeOnWallFace, slabCorners, wingFootprint,
+  snapToWallFace, ledgeOnWallFace, slabCorners, wingFootprint, referenceFaceAt, referencePointAtDistance,
 } from "../geometry";
 import { nid, footOf } from "../model";
 import { selectInBox, selected, toggleSelection, moveSelection, deleteSelection } from "../selection";
+import { filletWalls, wallEndNear } from "../fillet";
 
 // The interaction "engine": current tool/mode, in-progress drawing state,
 // selection, pointer + keyboard handling, and the document-mutating actions
@@ -34,6 +35,11 @@ export function useEditorInteractions({ doc, apply, pushUndo, doUndo: undo1, doR
   const [curT, setCurT] = useState(8);
   const [curD, setCurD] = useState(8);
   const [wallLengthBasis, setWallLengthBasis] = useState("outside");
+  const [faceSide, setFaceSide] = useState(1);
+  const [reference, setReference] = useState(null);
+  const [referenceOffset, setReferenceOffset] = useState("");
+  const [referenceError, setReferenceError] = useState("");
+  const [filletFirst, setFilletFirst] = useState(null);
   const [customT, setCustomT] = useState("");
   const [customD, setCustomD] = useState("");
   const [sel, setSel] = useState(null); // {type, id}
@@ -65,27 +71,76 @@ export function useEditorInteractions({ doc, apply, pushUndo, doUndo: undo1, doR
   const groupDragRef = useRef(null);
   const runWallIdsRef = useRef([]);
   const runBasisRef = useRef("outside");
+  const runSideRef = useRef(1);
+
+  // Footing bands never participate in drawing snaps. While adding a branch,
+  // snap to the actual faces of existing walls; the current run keeps its own
+  // usual endpoint/angle behavior for drawing and closing a footprint.
+  const wallDrawSnap = useCallback((from, wx, wy, alt) => {
+    if (from && runStart && runWallIdsRef.current.length >= 2 && dist(wx, wy, runStart.x, runStart.y) < 10 / tf.scale) return { ...runStart, type: "endpoint" };
+    const currentRun = new Set(runWallIdsRef.current);
+    const existing = walls.filter((w) => !currentRun.has(w.id));
+    const face = snapToWallFace(wx, wy, existing, 10 / tf.scale);
+    if (face && (!from || dist(from.x, from.y, face.x, face.y) > 0.01)) return face;
+    return snapPreview(from, wx, wy, alt);
+  }, [walls, tf.scale, snapPreview, runStart]);
 
   const showToast = useCallback((msg) => {
     setToast(msg);
     setTimeout(() => setToast(null), 2600);
   }, []);
 
-  const doUndo = useCallback(() => { if (undo1()) { setSel(null); setGroupSelection([]); } }, [undo1]);
-  const doRedo = useCallback(() => { if (redo1()) { setSel(null); setGroupSelection([]); } }, [redo1]);
+  const doUndo = useCallback(() => { if (undo1()) { setSel(null); setGroupSelection([]); setStart(null); setRunStart(null); runWallIdsRef.current = []; } }, [undo1]);
+  const doRedo = useCallback(() => { if (redo1()) { setSel(null); setGroupSelection([]); setStart(null); setRunStart(null); runWallIdsRef.current = []; } }, [redo1]);
 
   const selectAreaMode = useCallback((next) => {
     setAreaMode(next);
     if (next === "pick") setTracePts([]);
   }, []);
 
+  const beginReference = useCallback(() => {
+    setStart(null); setRunStart(null); setTyped("");
+    runWallIdsRef.current = [];
+    setReferenceOffset(""); setReferenceError(""); setSnapInfo(null);
+    setReference({ stage: "corner" });
+  }, []);
+
+  const cancelReference = useCallback(() => { setReference(null); setReferenceOffset(""); setReferenceError(""); setSnapInfo(null); }, []);
+  const confirmReference = useCallback(() => {
+    if (!reference || reference.stage !== "offset") return;
+    const distance = parseLength(referenceOffset);
+    if (distance == null || distance < 0) { setReferenceError("Enter a distance, for example 5' or 5'6.5\"."); return; }
+    const point = referencePointAtDistance(reference.face, distance);
+    if (!point) { setReferenceError(`Distance must be no greater than ${formatFtIn(reference.face.length)} along this face.`); return; }
+    setStart(point);
+    // This is a face-referenced branch, not a closed footprint drawn from its
+    // first corner; do not offset the completed run as a standalone loop.
+    setRunStart(null);
+    runWallIdsRef.current = [];
+    runBasisRef.current = wallLengthBasis;
+    runSideRef.current = faceSide;
+    setReference({ ...reference, stage: "placed", point, distance });
+    setReferenceError(""); setTyped(""); setSnapInfo(null);
+    showToast("Start set. Move the pointer in the new wall's direction, then click or type its length.");
+  }, [reference, referenceOffset, wallLengthBasis, faceSide, showToast]);
+
+  const chooseFaceSide = useCallback((side) => {
+    if (runWallIdsRef.current.length) { showToast("Finish the current wall run before changing the wall side."); return; }
+    setFaceSide(side); runSideRef.current = side;
+  }, [showToast]);
+
+  const chooseWallLengthBasis = useCallback((basis) => {
+    if (runWallIdsRef.current.length) { showToast("Finish the current wall run before changing its measurement basis."); return; }
+    setWallLengthBasis(basis); runBasisRef.current = basis;
+  }, [showToast]);
+
   // ---------- placement / drawing ----------
   const addWall = useCallback(
-    (x1, y1, x2, y2, lengthBasis) => {
+    (x1, y1, x2, y2, lengthBasis, pendingFace) => {
       if (dist(x1, y1, x2, y2) < 0.01) return false;
       const id = nid();
       apply((d) => {
-        d.walls.push({ id, x1, y1, x2, y2, thickness: curT, depth: curD, footing: null, lengthBasis });
+        d.walls.push({ id, x1, y1, x2, y2, thickness: curT, depth: curD, footing: null, lengthBasis, pendingFace });
         return d;
       });
       return id;
@@ -97,27 +152,36 @@ export function useEditorInteractions({ doc, apply, pushUndo, doUndo: undo1, doR
     (pt) => {
       if (!start) {
         setStart({ x: pt.x, y: pt.y });
-        setRunStart({ x: pt.x, y: pt.y });
+        setRunStart(pt.anchor ? null : { x: pt.x, y: pt.y });
         runWallIdsRef.current = [];
         runBasisRef.current = wallLengthBasis;
+        runSideRef.current = faceSide;
         setTyped("");
         return;
       }
       const closesRun = Boolean(runStart && same(pt.x, pt.y, runStart.x, runStart.y));
       const basis = runBasisRef.current;
-      if (closesRun && runWallIdsRef.current.length >= 2 && basis !== "centerline") {
+      if (basis !== "centerline") {
+        if (dist(start.x, start.y, pt.x, pt.y) < 0.01) return;
         const id = nid();
         const priorIds = [...runWallIdsRef.current, id];
+        const oldWalls = runWallIdsRef.current.map((wallId) => doc.walls.find((w) => w.id === wallId));
+        if (oldWalls.some((wall) => !wall || !wall.faceStart || !wall.faceEnd)) { showToast("The wall run changed. Right-click and start a new run."); return; }
+        const last = { id, x1: start.x, y1: start.y, x2: pt.x, y2: pt.y, thickness: curT, depth: curD, footing: null, lengthBasis: basis, pendingFace: true, traceSide: runSideRef.current, faceStart: { ...start }, faceEnd: { x: pt.x, y: pt.y } };
+        const faces = [...oldWalls.map((w) => ({ ...w, x1: w.faceStart.x, y1: w.faceStart.y, x2: w.faceEnd.x, y2: w.faceEnd.y })), last];
+        const closing = closesRun && faces.length >= 3;
+        const centered = closing ? centerlineClosedWallRun(faces, basis) : centerlineOpenWallRun(faces, runSideRef.current);
+        if (!centered) { showToast("These wall faces cannot be joined. Check the turn or wall thickness."); return; }
+        if (centered.some((w) => dist(w.x1, w.y1, w.x2, w.y2) < 0.01)) { showToast("The wall is too short for this corner and wall thickness."); return; }
         apply((d) => {
-          d.walls.push({ id, x1: start.x, y1: start.y, x2: pt.x, y2: pt.y, thickness: curT, depth: curD, footing: null, lengthBasis: basis });
-          const ordered = priorIds.map((wallId) => d.walls.find((w) => w.id === wallId)).filter(Boolean);
-          const centered = centerlineClosedWallRun(ordered, basis);
-          const byId = new Map(centered.map((w) => [w.id, w]));
+          const byId = new Map(centered.map((w) => [w.id, { ...w, pendingFace: !closing }]));
           d.walls = d.walls.map((w) => byId.get(w.id) || w);
+          d.walls.push(byId.get(id));
           return d;
         });
+        if (!closing) runWallIdsRef.current = priorIds;
       } else {
-        const id = addWall(start.x, start.y, pt.x, pt.y, basis);
+        const id = addWall(start.x, start.y, pt.x, pt.y, basis, Boolean(runStart && basis !== "centerline"));
         if (!id) return;
         runWallIdsRef.current.push(id);
       }
@@ -130,7 +194,7 @@ export function useEditorInteractions({ doc, apply, pushUndo, doUndo: undo1, doR
         setStart({ x: pt.x, y: pt.y });
       }
     },
-    [start, runStart, wallLengthBasis, addWall, apply, curT, curD]
+    [start, runStart, wallLengthBasis, faceSide, addWall, apply, curT, curD, doc.walls, showToast]
   );
 
   const closeTrace = useCallback(() => {
@@ -214,6 +278,8 @@ export function useEditorInteractions({ doc, apply, pushUndo, doUndo: undo1, doR
         return;
       }
       if (e.button === 2) {
+        if (mode === "fillet") { setFilletFirst(null); setMode("select"); e.preventDefault(); return; }
+        if (mode === "draw" && reference) { cancelReference(); setStart(null); setRunStart(null); e.preventDefault(); return; }
         if (mode === "ledge") { setLedgeStart(null); e.preventDefault(); return; }
         if (mode === "drain") { finishDrain(); e.preventDefault(); return; }
         if (mode === "draw") { setStart(null); setRunStart(null); setTyped(""); runWallIdsRef.current = []; }
@@ -227,6 +293,38 @@ export function useEditorInteractions({ doc, apply, pushUndo, doUndo: undo1, doR
       }
       if (e.button !== 0) return;
       const [wx, wy] = toWorld(sx, sy);
+
+      if (mode === "fillet") {
+        let nearest = null, best = Math.max(10 / tf.scale, 0.1);
+        for (const wall of walls) {
+          const d = pointSegDist(wx, wy, wall.x1, wall.y1, wall.x2, wall.y2);
+          const tolerance = Math.max(best, wall.thickness / 24 + 6 / tf.scale);
+          if (d <= tolerance && (!nearest || d < best)) { nearest = wall; best = d; }
+        }
+        if (!nearest) { showToast("Click a wall near the end you want to join."); return; }
+        const pick = { id: nearest.id, end: wallEndNear(nearest, wx, wy) };
+        if (!filletFirst) { setFilletFirst(pick); return; }
+        const result = filletWalls(doc, filletFirst, pick);
+        if (result.error) { showToast(result.error); return; }
+        apply((d) => ({ ...d, walls: result.walls }));
+        setFilletFirst(null);
+        showToast(result.closedFaceLoop ? "Walls joined and outside/inside footprint closed." : "Walls joined at a normal corner.");
+        return;
+      }
+
+      if (mode === "draw" && reference && reference.stage !== "placed") {
+        if (reference.stage === "corner") {
+          const snap = snapToWallFace(wx, wy, walls, 12 / tf.scale);
+          if (!snap || snap.type !== "wall corner") { showToast("Select an existing wall-face corner."); return; }
+          setReference({ stage: "face", corner: { x: snap.x, y: snap.y } });
+          setSnapInfo(null);
+        } else if (reference.stage === "face") {
+          const face = referenceFaceAt(reference.corner, wx, wy, walls, 12 / tf.scale);
+          if (!face) { showToast("Click along a wall face leading away from the selected corner."); return; }
+          setReference({ ...reference, stage: "offset", face }); setSnapInfo(null);
+        }
+        return;
+      }
 
       if (mode === "slab") {
         apply((d) => { d.slabs = [...(d.slabs || []), { id: nid(), x: snapTo(wx), y: snapTo(wy), rotation: 0, ...slabSpec }]; return d; });
@@ -273,7 +371,8 @@ export function useEditorInteractions({ doc, apply, pushUndo, doUndo: undo1, doR
       }
 
       if (mode === "draw") {
-        commitWallPoint(snapPreview(start, wx, wy, e.altKey));
+        commitWallPoint(wallDrawSnap(start, wx, wy, e.altKey));
+        if (reference?.stage === "placed") setReference(null);
         return;
       }
       if (mode === "ruler") {
@@ -411,7 +510,7 @@ export function useEditorInteractions({ doc, apply, pushUndo, doUndo: undo1, doR
         setSelectionBox({ a: { x: wx, y: wy }, b: { x: wx, y: wy } });
       }
     },
-    [svgPoint, beginPan, tf, mode, areaMode, rulerPt, pendingWin, toWorld, commitWallPoint, snapPreview, start, apply, snapTo, padSpec, slabSpec, textSpec, winSpec, walls, areas, sel, doc, hitTest, closeTrace, commitTracePoint, tracePts, showToast, drainPts, finishDrain, ledgeStart, ledgeSize, ledgeKind, ledges, groupSelection]
+    [svgPoint, beginPan, tf, mode, areaMode, rulerPt, pendingWin, toWorld, commitWallPoint, wallDrawSnap, snapPreview, start, apply, snapTo, padSpec, slabSpec, textSpec, winSpec, walls, areas, sel, doc, hitTest, closeTrace, commitTracePoint, tracePts, showToast, drainPts, finishDrain, ledgeStart, ledgeSize, ledgeKind, ledges, groupSelection, reference, cancelReference, filletFirst]
   );
 
   const onMouseMove = useCallback(
@@ -500,7 +599,14 @@ export function useEditorInteractions({ doc, apply, pushUndo, doUndo: undo1, doR
         return;
       }
 
-      if (mode === "draw") setSnapInfo(snapPreview(start, wx, wy, e.altKey));
+      if (mode === "draw" && reference?.stage === "corner") {
+        const snap = snapToWallFace(wx, wy, walls, 12 / tf.scale);
+        setSnapInfo(snap?.type === "wall corner" ? snap : null);
+      } else if (mode === "draw" && reference?.stage === "face") {
+        const face = referenceFaceAt(reference.corner, wx, wy, walls, 12 / tf.scale);
+        setSnapInfo(face ? { x: wx, y: wy, type: "reference face", face } : null);
+      } else if (mode === "draw" && reference?.stage === "offset") setSnapInfo(null);
+      else if (mode === "draw") setSnapInfo(wallDrawSnap(start, wx, wy, e.altKey));
       else if (mode === "ledge") setSnapInfo(snapToWallFace(wx, wy, walls, 12 / tf.scale));
       else if (mode === "drain") setSnapInfo(snapToWallFace(wx, wy, walls, 12 / tf.scale) || { x: snapTo(wx), y: snapTo(wy), type: "grid" });
       else if (mode === "ruler") setSnapInfo(snapPreview(rulerPt, wx, wy, e.altKey));
@@ -509,7 +615,7 @@ export function useEditorInteractions({ doc, apply, pushUndo, doUndo: undo1, doR
       else if (mode === "window") setSnapInfo(pendingWin ? null : findWallSnap(wx, wy, walls, Math.max(16 / tf.scale, 2)));
       else setSnapInfo(null);
     },
-    [svgPoint, updatePan, toWorld, tf.scale, snapTo, walls, setDoc, mode, snapPreview, start, rulerPt, areaMode, tracePts, pendingWin, drainPts, showToast]
+    [svgPoint, updatePan, toWorld, tf.scale, snapTo, walls, setDoc, mode, wallDrawSnap, snapPreview, start, rulerPt, areaMode, tracePts, pendingWin, drainPts, showToast, reference]
   );
 
   const onMouseUp = useCallback(() => {
@@ -591,6 +697,8 @@ export function useEditorInteractions({ doc, apply, pushUndo, doUndo: undo1, doR
         return;
       }
       if (e.key === "Escape") {
+        setFilletFirst(null);
+        cancelReference();
         setDrainPts([]);
         setLedgeStart(null);
         setGroupSelection([]); setSelectionBox(null); boxRef.current = null;
@@ -620,7 +728,7 @@ export function useEditorInteractions({ doc, apply, pushUndo, doUndo: undo1, doR
               ang = Math.round(ang / step) * step;
             }
             const pt = { x: from.x + Math.cos(ang) * len, y: from.y + Math.sin(ang) * len };
-            drawing ? commitWallPoint(pt) : commitTracePoint(pt);
+            if (drawing) { commitWallPoint(pt); if (reference?.stage === "placed") setReference(null); } else commitTracePoint(pt);
           } else if (tracing) closeTrace();
           return;
         }
@@ -630,13 +738,15 @@ export function useEditorInteractions({ doc, apply, pushUndo, doUndo: undo1, doR
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [mode, areaMode, start, tracePts, typed, snapInfo, mouse, sel, doUndo, doRedo, commitWallPoint, commitTracePoint, closeTrace, deleteSel, finishDrain, groupSelection]);
+  }, [mode, areaMode, start, tracePts, typed, snapInfo, mouse, sel, doUndo, doRedo, commitWallPoint, commitTracePoint, closeTrace, deleteSel, finishDrain, groupSelection, reference, cancelReference]);
 
   // mode switching side effects
   useEffect(() => {
     setStart(null); setRunStart(null); setTracePts([]); setRulerPt(null); setPendingWin(null); setTyped("");
     setDrainPts([]);
     setLedgeStart(null);
+    setReference(null); setReferenceOffset(""); setReferenceError("");
+    setFilletFirst(null);
     setGroupSelection([]); setSelectionBox(null); boxRef.current = null; groupDragRef.current = null;
     runWallIdsRef.current = [];
     if (mode !== "select") setSel(null);
@@ -708,7 +818,10 @@ export function useEditorInteractions({ doc, apply, pushUndo, doUndo: undo1, doR
     drainKind, setDrainKind, drainPts, selDrain,
     ledgeKind, setLedgeKind, ledgeSize, setLedgeSize, ledgeStart, selLedge,
     curT, setCurT, curD, setCurD, customT, setCustomT, customD, setCustomD,
-    wallLengthBasis, setWallLengthBasis,
+    wallLengthBasis, setWallLengthBasis: chooseWallLengthBasis,
+    faceSide, chooseFaceSide,
+    reference, referenceOffset, setReferenceOffset, referenceError, beginReference, cancelReference, confirmReference,
+    filletFirst,
     sel, setSel, selWall, selPad, selWin, selArea, selDim,
     groupSelection, selectionBox,
     confirmClear, toast, showToast,

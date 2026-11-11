@@ -15,6 +15,7 @@ export function TakeoffPanel({
   selLedge,
   groupSelection, groupTakeoff,
   selSlab, selText, selWing, updateSlab, updateText,
+  showFootings,
 }) {
   const hasDoc = Boolean(takeoff.wallRows.length || takeoff.padRows.length || takeoff.winRows.length || takeoff.areaRows.length || takeoff.drainRows.length || takeoff.ledgeRows.length || takeoff.slabRows.length || takeoff.wingCount);
   const onSelectColor = (key, color) => setRowColors((c) => ({ ...c, [key]: color }));
@@ -76,6 +77,7 @@ export function TakeoffPanel({
 
         {takeoff.footingRows.length > 0 && <>
           <div style={{ margin: "6px 0 6px" }}><Label>Footings — lineal feet</Label></div>
+          {!showFootings && <div style={{ color: COLORS.textMut, fontSize: 10, margin: "0 0 6px" }}>Footing bands are hidden in 2D. Use Footings on/off above to show them.</div>}
           {takeoff.footingRows.map((r) => <TakeoffRow key={r.key} rowKey={r.key} {...rowProps(r.key, r.colorKey)}
             main={`Footing ${r.width}" × ${r.height}"`} value={formatFtIn(r.len)}
             sub={`${r.basis === "outside" ? "outside-face" : r.basis === "inside" ? "inside-face" : "centerline"} LF · assumed from wall`} subRight={`${r.count} run${r.count === 1 ? "" : "s"}`} />)}

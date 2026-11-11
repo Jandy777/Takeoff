@@ -139,6 +139,35 @@ export function snapToWallFace(x, y, walls, tolerance) {
   return best;
 }
 
+// Select an incident face by pointing along it from a previously picked corner.
+export function referenceFaceAt(corner, x, y, walls, tolerance) {
+  let best = null;
+  for (const wall of walls) {
+    const poly = wallPolygon(wall, walls, (w) => w.thickness / 12);
+    if (!poly) continue;
+    for (const [i, j] of [[0, 1], [3, 2]]) {
+      let origin, end;
+      if (dist(corner.x, corner.y, poly[i].x, poly[i].y) < 1e-5) { origin = poly[i]; end = poly[j]; }
+      else if (dist(corner.x, corner.y, poly[j].x, poly[j].y) < 1e-5) { origin = poly[j]; end = poly[i]; }
+      else continue;
+      const length = dist(origin.x, origin.y, end.x, end.y);
+      if (length < 0.01) continue;
+      const ux = (end.x - origin.x) / length, uy = (end.y - origin.y) / length;
+      const along = (x - origin.x) * ux + (y - origin.y) * uy;
+      if (along <= 0 || along > length + tolerance) continue;
+      const distance = dist(x, y, origin.x + Math.min(along, length) * ux, origin.y + Math.min(along, length) * uy);
+      if (distance <= tolerance && (!best || distance < best.distance)) best = { wallId: wall.id, origin: { ...origin }, end: { ...end }, ux, uy, length, distance };
+    }
+  }
+  return best;
+}
+
+export function referencePointAtDistance(face, distance) {
+  if (!face || !Number.isFinite(distance) || distance < 0 || distance > face.length + 1e-7) return null;
+  const d = Math.min(distance, face.length);
+  return { x: face.origin.x + face.ux * d, y: face.origin.y + face.uy * d };
+}
+
 // Resolve saved wall-relative anchors for every view and quantity calculation.
 // Unattached points (and anchors whose wall is missing) retain their coordinates.
 export function resolveDrainPoint(point, walls) {
@@ -223,6 +252,37 @@ export function centerlineClosedWallRun(runWalls, basis = "outside") {
   }));
 }
 
+// During an open face-drawn run, entered vertices describe one continuous
+// wall face. Offset each segment toward the chosen side and intersect the
+// offset lines, rather than mistaking entered face lengths for centerlines.
+export function centerlineOpenWallRun(runWalls, side) {
+  if (!runWalls.length) return [];
+  const lines = runWalls.map((w) => {
+    const length = dist(w.x1, w.y1, w.x2, w.y2);
+    if (length < 0.01) return null;
+    const d = { x: (w.x2 - w.x1) / length, y: (w.y2 - w.y1) / length };
+    const offset = side * w.thickness / 24;
+    return { p: { x: w.x1 - d.y * offset, y: w.y1 + d.x * offset }, d, length };
+  });
+  if (lines.some((line) => !line)) return null;
+  const vertices = [lines[0].p];
+  for (let i = 1; i < lines.length; i++) {
+    const prev = lines[i - 1], next = lines[i];
+    const intersection = lineIntersect(prev.p, prev.d, next.p, next.d);
+    if (intersection) vertices.push(intersection);
+    else {
+      const separation = Math.abs((next.p.x - prev.p.x) * prev.d.y - (next.p.y - prev.p.y) * prev.d.x);
+      const direction = prev.d.x * next.d.x + prev.d.y * next.d.y;
+      if (separation > 1e-6 || direction <= 0) return null;
+      vertices.push(next.p);
+    }
+  }
+  const last = lines[lines.length - 1];
+  vertices.push({ x: last.p.x + last.d.x * last.length, y: last.p.y + last.d.y * last.length });
+  if (lines.some((line, i) => (vertices[i + 1].x - vertices[i].x) * line.d.x + (vertices[i + 1].y - vertices[i].y) * line.d.y <= 0.01)) return null;
+  return runWalls.map((w, i) => ({ ...w, x1: vertices[i].x, y1: vertices[i].y, x2: vertices[i + 1].x, y2: vertices[i + 1].y }));
+}
+
 export function wallFaceLengths(w, allWalls, widthOf) {
   const centerline = wallLen(w);
   if (centerline < 0.01) return { outside: centerline, centerline, inside: centerline, resolved: false };
@@ -234,11 +294,19 @@ export function wallFaceLengths(w, allWalls, widthOf) {
   const probe = Math.max(0.01, halfW * 0.25);
   const plusIn = Boolean(detectRegion(allWalls, mx + n.x * probe, my + n.y * probe));
   const minusIn = Boolean(detectRegion(allWalls, mx - n.x * probe, my - n.y * probe));
-  if (plusIn === minusIn) return { outside: centerline, centerline, inside: centerline, resolved: false };
   const ca = endCorners({ x: w.x1, y: w.y1 }, d, halfW, allWalls, w, widthOf);
   const cb = endCorners({ x: w.x2, y: w.y2 }, { x: -d.x, y: -d.y }, halfW, allWalls, w, widthOf);
   const plusLen = dist(ca[0].x, ca[0].y, cb[1].x, cb[1].y);
   const minusLen = dist(ca[1].x, ca[1].y, cb[0].x, cb[0].y);
+  if (plusIn === minusIn) {
+    if (w.pendingFace && (w.traceSide === 1 || w.traceSide === -1)) {
+      const interiorSide = w.lengthBasis === "inside" ? -w.traceSide : w.traceSide;
+      return interiorSide > 0
+        ? { outside: minusLen, centerline, inside: plusLen, resolved: true, interiorSide }
+        : { outside: plusLen, centerline, inside: minusLen, resolved: true, interiorSide };
+    }
+    return { outside: centerline, centerline, inside: centerline, resolved: false };
+  }
   return plusIn
     ? { outside: minusLen, centerline, inside: plusLen, resolved: true, interiorSide: 1 }
     : { outside: plusLen, centerline, inside: minusLen, resolved: true, interiorSide: -1 };
@@ -337,6 +405,53 @@ export function pointInPoly(px, py, poly) {
   return inside;
 }
 
+// For topology only, extend a branch that physically ends at another wall's
+// face to its centerline, then divide that host into virtual segments. The
+// stored wall lengths and physical wall/footing geometry remain unchanged.
+export function wallTopologySegments(walls) {
+  const adjusted = walls.map((wall) => ({ ...wall }));
+  for (const wall of adjusted) for (const end of [1, 2]) {
+    const point = { x: wall[`x${end}`], y: wall[`y${end}`] };
+    const other = { x: wall[`x${3 - end}`], y: wall[`y${3 - end}`] };
+    if (walls.some((w) => w.id !== wall.id && (same(point.x, point.y, w.x1, w.y1) || same(point.x, point.y, w.x2, w.y2)))) continue;
+    let best = null;
+    for (const host of walls) {
+      if (host.id === wall.id || !(host.thickness > 0)) continue;
+      const dx = host.x2 - host.x1, dy = host.y2 - host.y1, length = Math.hypot(dx, dy);
+      const branchLength = dist(point.x, point.y, other.x, other.y);
+      if (length < 0.01 || branchLength < 0.01) continue;
+      const t = ((point.x - host.x1) * dx + (point.y - host.y1) * dy) / (length * length);
+      if (t <= EP / length || t >= 1 - EP / length) continue;
+      const x = host.x1 + t * dx, y = host.y1 + t * dy;
+      const separation = dist(x, y, point.x, point.y), error = Math.abs(separation - host.thickness / 24);
+      if (error > 0.01) continue;
+      // Branch must leave the face, not continue through the host wall.
+      if ((point.x - x) * (other.x - point.x) + (point.y - y) * (other.y - point.y) <= 0) continue;
+      if (Math.abs(dx * (other.y - point.y) - dy * (other.x - point.x)) / (length * branchLength) < 0.01) continue;
+      if (!best || error < best.error) best = { x, y, error };
+    }
+    if (best) { wall[`x${end}`] = best.x; wall[`y${end}`] = best.y; }
+  }
+  const endpoints = adjusted.flatMap((w) => [{ x: w.x1, y: w.y1 }, { x: w.x2, y: w.y2 }]);
+  const segments = [];
+  for (const wall of adjusted) {
+    const dx = wall.x2 - wall.x1, dy = wall.y2 - wall.y1, length2 = dx * dx + dy * dy;
+    if (length2 < 0.0001) continue;
+    const points = [0, 1];
+    for (const p of endpoints) {
+      const t = ((p.x - wall.x1) * dx + (p.y - wall.y1) * dy) / length2;
+      if (t > 1e-6 && t < 1 - 1e-6 && dist(p.x, p.y, wall.x1 + t * dx, wall.y1 + t * dy) < EP) points.push(t);
+    }
+    points.sort((a, b) => a - b);
+    const unique = points.filter((t, i) => !i || (t - points[i - 1]) * Math.sqrt(length2) > EP);
+    for (let i = 1; i < unique.length; i++) {
+      const from = unique[i - 1], to = unique[i];
+      segments.push({ wallId: wall.id, thickness: wall.thickness, x1: wall.x1 + from * dx, y1: wall.y1 + from * dy, x2: wall.x1 + to * dx, y2: wall.y1 + to * dy });
+    }
+  }
+  return segments;
+}
+
 // Planar face walk: find the smallest closed wall loop containing (px, py).
 export function detectRegion(walls, px, py) {
   const nodes = [];
@@ -346,13 +461,13 @@ export function detectRegion(walls, px, py) {
     return nodes.length - 1;
   };
   const half = [];
-  walls.forEach((w) => {
+  wallTopologySegments(walls).forEach((w) => {
     if (wallLen(w) < 0.01) return;
     const a = nodeKey(w.x1, w.y1), b = nodeKey(w.x2, w.y2);
     if (a === b) return;
     const A = nodes[a], B = nodes[b];
-    half.push({ from: a, to: b, ang: Math.atan2(B.y - A.y, B.x - A.x) });
-    half.push({ from: b, to: a, ang: Math.atan2(A.y - B.y, A.x - B.x) });
+    half.push({ from: a, to: b, wallId: w.wallId, ang: Math.atan2(B.y - A.y, B.x - A.x) });
+    half.push({ from: b, to: a, wallId: w.wallId, ang: Math.atan2(A.y - B.y, A.x - B.x) });
   });
   if (!half.length) return null;
   const out = new Map();
@@ -369,22 +484,26 @@ export function detectRegion(walls, px, py) {
     return list[(idx - 1 + list.length) % list.length];
   };
   const used = new Array(half.length).fill(false);
-  let best = null, bestA = Infinity;
+  let best = null, bestA = Infinity, bestWallIds = null;
   for (let s = 0; s < half.length; s++) {
     if (used[s]) continue;
-    const poly = [];
+    const poly = [], wallIds = [];
     let i = s, guard = 0;
     while (!used[i] && guard++ < 20000) {
       used[i] = true;
       poly.push(nodes[half[i].from]);
+      wallIds.push(half[i].wallId);
       i = nextHE(i);
     }
     if (poly.length < 3) continue;
     if (!pointInPoly(px, py, poly)) continue;
     const a = Math.abs(shoelace(poly));
-    if (a > 0.5 && a < bestA) { bestA = a; best = poly; }
+    if (a > 0.5 && a < bestA) { bestA = a; best = poly; bestWallIds = wallIds; }
   }
-  return best ? best.map((p) => ({ x: p.x, y: p.y })) : null;
+  if (!best) return null;
+  const result = best.map((p) => ({ x: p.x, y: p.y }));
+  result.wallIds = bestWallIds;
+  return result;
 }
 
 // Offset each boundary of the detected centerline face into the room by that
@@ -395,10 +514,7 @@ export function detectClearRegion(walls, px, py) {
   const orientation = Math.sign(shoelace(loop));
   const lines = loop.map((a, i) => {
     const b = loop[(i + 1) % loop.length];
-    const matching = walls.filter((w) =>
-      (same(w.x1, w.y1, a.x, a.y) && same(w.x2, w.y2, b.x, b.y)) ||
-      (same(w.x2, w.y2, a.x, a.y) && same(w.x1, w.y1, b.x, b.y))
-    );
+    const matching = walls.filter((w) => w.id === loop.wallIds[i]);
     if (matching.length !== 1 || !(matching[0].thickness > 0)) return null;
     const length = dist(a.x, a.y, b.x, b.y);
     if (length < 0.01) return null;

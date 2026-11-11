@@ -26,6 +26,7 @@ import { PrintSheet } from "./foundation/ui/PrintSheet";
 // CLAUDE.md for the module map and where new features belong.
 export default function FoundationTakeoff() {
   const [view, setView] = useState("2d");
+  const [showFootings, setShowFootings] = useState(false);
   const [printSnapshot, setPrintSnapshot] = useState(null);
   const printSvgRef = useRef(null);
 
@@ -83,10 +84,13 @@ export default function FoundationTakeoff() {
         curT={editor.curT} setCurT={editor.setCurT} customT={editor.customT} setCustomT={editor.setCustomT}
         curD={editor.curD} setCurD={editor.setCurD} customD={editor.customD} setCustomD={editor.setCustomD}
         wallLengthBasis={editor.wallLengthBasis} setWallLengthBasis={editor.setWallLengthBasis}
+        faceSide={editor.faceSide} chooseFaceSide={editor.chooseFaceSide}
+        reference={editor.reference} beginReference={editor.beginReference}
         drainKind={editor.drainKind} setDrainKind={editor.setDrainKind} drainPts={editor.drainPts}
         ledgeKind={editor.ledgeKind} setLedgeKind={editor.setLedgeKind} ledgeSize={editor.ledgeSize} setLedgeSize={editor.setLedgeSize} ledgeStart={editor.ledgeStart}
         padSpec={editor.padSpec} winSpec={editor.winSpec} setModal={editor.setModal}
         slabSpec={editor.slabSpec} onPrint={onPrint}
+        showFootings={showFootings} setShowFootings={setShowFootings}
         doUndo={editor.doUndo} doRedo={editor.doRedo} onFit={onFit}
         clearAll={editor.clearAll} confirmClear={editor.confirmClear}
         view={view} setView={setView}
@@ -100,14 +104,18 @@ export default function FoundationTakeoff() {
               toScreen={viewport.toScreen} toWorld={viewport.toWorld}
               doc={doc} sel={editor.sel} selWall={editor.selWall}
               groupSelection={editor.groupSelection} selectionBox={editor.selectionBox}
+              filletFirst={editor.filletFirst}
               rowColor={visibility.rowColor} shown={visibility.shown} showDims={editor.showDims}
               mode={editor.mode} areaMode={editor.areaMode}
               start={editor.start} tracePts={editor.tracePts} rulerPt={editor.rulerPt}
               pendingWin={editor.pendingWin} mouse={editor.mouse} snapInfo={editor.snapInfo}
               curT={editor.curT} curD={editor.curD} winSpec={editor.winSpec}
               wallLengthBasis={editor.wallLengthBasis}
+              faceSide={editor.faceSide}
               drainPts={editor.drainPts} drainKind={editor.drainKind}
               ledgeStart={editor.ledgeStart}
+              reference={editor.reference}
+              showFootings={showFootings}
               onMouseDown={editor.onMouseDown} onMouseMove={editor.onMouseMove} onMouseUp={editor.onMouseUp}
               onWheel={viewport.onWheel}
             />
@@ -119,6 +127,8 @@ export default function FoundationTakeoff() {
             view={view} mode={editor.mode} areaMode={editor.areaMode}
             start={editor.start} tracePts={editor.tracePts} typed={editor.typed}
             soloSet={visibility.soloSet} setSolo={visibility.setSolo} toast={editor.toast}
+            reference={editor.reference} referenceOffset={editor.referenceOffset} setReferenceOffset={editor.setReferenceOffset}
+            referenceError={editor.referenceError} confirmReference={editor.confirmReference} cancelReference={editor.cancelReference}
           />
         </div>
 
@@ -135,6 +145,7 @@ export default function FoundationTakeoff() {
           selLedge={editor.selLedge}
           selSlab={editor.selSlab} selText={editor.selText} selWing={editor.selWing} updateSlab={editor.updateSlab} updateText={editor.updateText}
           groupSelection={editor.groupSelection} groupTakeoff={groupTakeoff}
+          showFootings={showFootings}
         />
       </div>
 
@@ -142,6 +153,7 @@ export default function FoundationTakeoff() {
         view={view} mouse={editor.mouse} snapLabel={snapping.snapLabel} altFree={editor.altFree}
         mode={editor.mode} start={editor.start} sel={editor.sel} pendingWin={editor.pendingWin}
         winSpec={editor.winSpec} areaMode={editor.areaMode} rulerPt={editor.rulerPt}
+        filletFirst={editor.filletFirst}
       />
 
       <PlacementModal

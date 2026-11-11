@@ -3,7 +3,7 @@ import { COLORS } from "../constants";
 import { formatFtIn } from "../geometry";
 import { mono } from "./primitives";
 
-function hintFor({ mode, start, sel, pendingWin, winSpec, areaMode, rulerPt }) {
+function hintFor({ mode, start, sel, pendingWin, winSpec, areaMode, rulerPt, filletFirst }) {
   switch (mode) {
     case "draw":
       return start
@@ -11,6 +11,7 @@ function hintFor({ mode, start, sel, pendingWin, winSpec, areaMode, rulerPt }) {
         : "Click to start a wall run";
     case "select":
       return "Click to edit · Shift-click to add/remove · drag a box to select touched items · middle-drag to pan";
+    case "fillet": return filletFirst ? "Click the second wall near the end to join · Esc cancels" : "Click the first wall near the end to join · right-click exits";
     case "pad":
       return "Click to stamp pads · right-click when done";
     case "slab": return "Click to place a thickened slab · right-click when done";
@@ -36,7 +37,7 @@ function hintFor({ mode, start, sel, pendingWin, winSpec, areaMode, rulerPt }) {
   }
 }
 
-export function StatusBar({ view, mouse, snapLabel, altFree, mode, start, sel, pendingWin, winSpec, areaMode, rulerPt }) {
+export function StatusBar({ view, mouse, snapLabel, altFree, mode, start, sel, pendingWin, winSpec, areaMode, rulerPt, filletFirst }) {
   return (
     <div style={{ display: "flex", alignItems: "center", gap: 16, padding: "6px 14px", background: COLORS.chromeDeep, borderTop: `1px solid ${COLORS.border}`, fontSize: 11, color: COLORS.textMut }}>
       <span style={{ fontFamily: mono }}>{mouse && view === "2d" ? `${formatFtIn(mouse.x)}, ${formatFtIn(mouse.y)}` : ""}</span>
@@ -46,7 +47,7 @@ export function StatusBar({ view, mouse, snapLabel, altFree, mode, start, sel, p
         </span>
       )}
       {altFree && view === "2d" && <span style={{ color: COLORS.accent }}>snap off — free angle</span>}
-      <span style={{ marginLeft: "auto" }}>{view === "2d" ? hintFor({ mode, start, sel, pendingWin, winSpec, areaMode, rulerPt }) : "3D is view-only · Drain tile elevation is illustrative"}</span>
+      <span style={{ marginLeft: "auto" }}>{view === "2d" ? hintFor({ mode, start, sel, pendingWin, winSpec, areaMode, rulerPt, filletFirst }) : "3D is view-only · Drain tile elevation is illustrative"}</span>
     </div>
   );
 }

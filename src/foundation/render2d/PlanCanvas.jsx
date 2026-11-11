@@ -1,7 +1,7 @@
 import React from "react";
 import { SEL } from "../constants";
 import { MONO as mono } from "../constants";
-import { wallLen, windowPose } from "../geometry";
+import { wallLen, windowPose, centerlineOpenWallRun } from "../geometry";
 import { slabKey } from "../model";
 import { Grid } from "./Grid";
 import { WallGlyph } from "./WallGlyph";
@@ -19,15 +19,19 @@ export function PlanCanvas({
   svgRef, size, tf, toScreen, toWorld,
   doc, sel, selWall,
   groupSelection, selectionBox,
+  filletFirst,
   rowColor, shown, showDims,
   mode, areaMode, start, tracePts, rulerPt, pendingWin, mouse, snapInfo,
   curT, curD, winSpec,
   wallLengthBasis,
+  faceSide = 1,
   drainPts, drainKind, ledgeStart,
+  reference,
+  showFootings = false,
   onMouseDown, onMouseMove, onMouseUp, onWheel,
 }) {
   const { walls, pads, windows, areas, dims } = doc;
-  const selFor = (type, id) => selected(groupSelection, type, id) ? { type, id } : sel;
+  const selFor = (type, id) => selected(groupSelection, type, id) || (type === "wall" && filletFirst?.id === id) ? { type, id } : sel;
 
   return (
     <svg
@@ -39,7 +43,13 @@ export function PlanCanvas({
       <g id="underlay-layer" />
       <Grid tf={tf} size={size} toWorld={toWorld} toScreen={toScreen} />
       <g>{areas.map((a) => <AreaGlyph key={a.id} area={a} tf={tf} toScreen={toScreen} sel={selFor("area", a.id)} rowColor={rowColor} shown={shown} />)}</g>
+      {showFootings && <g>{walls.map((w) => <WallGlyph key={w.id} wall={w} walls={walls} tf={tf} toScreen={toScreen} sel={selFor("wall", w.id)} rowColor={rowColor} shown={shown} showDims={false} footingOnly />)}</g>}
       <g>{walls.map((w) => <WallGlyph key={w.id} wall={w} walls={walls} tf={tf} toScreen={toScreen} sel={selFor("wall", w.id)} rowColor={rowColor} shown={shown} showDims={showDims} />)}</g>
+      {filletFirst && (() => {
+        const wall = walls.find((w) => w.id === filletFirst.id); if (!wall) return null;
+        const [x, y] = toScreen(filletFirst.end === 1 ? wall.x1 : wall.x2, filletFirst.end === 1 ? wall.y1 : wall.y2);
+        return <g pointerEvents="none"><circle cx={x} cy={y} r={9} fill="#fff" stroke={SEL} strokeWidth={3} /><circle cx={x} cy={y} r={3} fill={SEL} /></g>;
+      })()}
       <g>{pads.map((p) => <PadGlyph key={p.id} pad={p} tf={tf} toScreen={toScreen} sel={selFor("pad", p.id)} rowColor={rowColor} shown={shown} />)}</g>
       <g>{(doc.slabs || []).map((s) => {
         const [x, y] = toScreen(s.x, s.y), w = s.w / 12 * tf.scale, h = s.l / 12 * tf.scale;
@@ -70,6 +80,19 @@ export function PlanCanvas({
         const [x1, y1] = toScreen(selectionBox.a.x, selectionBox.a.y), [x2, y2] = toScreen(selectionBox.b.x, selectionBox.b.y);
         return <rect x={Math.min(x1, x2)} y={Math.min(y1, y2)} width={Math.abs(x2 - x1)} height={Math.abs(y2 - y1)} fill="rgba(255,138,61,0.13)" stroke={SEL} strokeWidth={1.5} strokeDasharray="6 4" pointerEvents="none" />;
       })()}
+      {reference?.corner && (() => {
+        const [cx, cy] = toScreen(reference.corner.x, reference.corner.y);
+        return <circle cx={cx} cy={cy} r={7} fill="#fff" stroke="#e5571b" strokeWidth={3} pointerEvents="none" />;
+      })()}
+      {(reference?.face || snapInfo?.type === "reference face") && (() => {
+        const face = reference?.face || snapInfo.face;
+        const [ax, ay] = toScreen(face.origin.x, face.origin.y), [bx, by] = toScreen(face.end.x, face.end.y);
+        return <line x1={ax} y1={ay} x2={bx} y2={by} stroke="#e5571b" strokeWidth={4} strokeDasharray="7 4" opacity={0.9} pointerEvents="none" />;
+      })()}
+      {reference?.point && (() => {
+        const [x, y] = toScreen(reference.point.x, reference.point.y);
+        return <g pointerEvents="none"><circle cx={x} cy={y} r={9} fill="#fff" stroke="#e5571b" strokeWidth={3} /><circle cx={x} cy={y} r={3} fill="#e5571b" /><text x={x + 14} y={y - 10} fontSize={11} fontWeight={700} fill="#9b3b11" stroke="#fff" strokeWidth={3} paintOrder="stroke">Wall start</text></g>;
+      })()}
       {mode === "ledge" && ledgeStart && snapInfo && <line x1={toScreen(ledgeStart.x, ledgeStart.y)[0]} y1={toScreen(ledgeStart.x, ledgeStart.y)[1]} x2={toScreen(snapInfo.x, snapInfo.y)[0]} y2={toScreen(snapInfo.x, snapInfo.y)[1]} stroke="#b64a35" strokeWidth={3} strokeDasharray="6 4" />}
       {mode === "drain" && drainPts.length > 0 && (
         <g>
@@ -96,7 +119,7 @@ export function PlanCanvas({
       {/* wall drawing preview */}
       {mode === "draw" && start && snapInfo && (
         <WallGlyph
-          wall={{ id: -1, x1: start.x, y1: start.y, x2: snapInfo.x, y2: snapInfo.y, thickness: curT, depth: curD, footing: null, lengthBasis: wallLengthBasis }}
+          wall={(() => { const w = { id: -1, x1: start.x, y1: start.y, x2: snapInfo.x, y2: snapInfo.y, thickness: curT, depth: curD, footing: null, lengthBasis: wallLengthBasis }; return wallLengthBasis === "centerline" ? w : (centerlineOpenWallRun([w], faceSide)?.[0] || w); })()}
           isPreview walls={walls} tf={tf} toScreen={toScreen} sel={sel} rowColor={rowColor} shown={shown} showDims={showDims}
         />
       )}

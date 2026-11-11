@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { supabase, initialAuthNotice, loadAuthProviders } from "../library/supabase";
 import { authReturnUrl } from "../library/authReturn";
 import { employeeSignupData, isWorkEmail } from "../library/employeeSignup";
-import { clearEmployeeReturn, completeEmployeeReturn, saveEmployeeReturn, socialSignInRequest, takeEmployeeReturn } from "../library/socialAuth";
+import { socialSignInRequest } from "../library/socialAuth";
 
 export function useTakeoffAccount() {
   const [session, setSession] = useState(null);
@@ -43,13 +43,6 @@ export function useTakeoffAccount() {
     if (!session?.user.id) { setMember(null); return; }
     setLoading(true);
     try {
-      let pending;
-      try { pending = takeEmployeeReturn(window.sessionStorage); } catch { /* Password sign-in works when browser storage is unavailable. */ }
-      if (pending) {
-        try {
-          await completeEmployeeReturn(supabase, pending, session.user);
-        } catch (e) { setNotice({ kind: "warning", message: e.message }); }
-      }
       const result = await supabase.from("team_members").select("*").eq("user_id", session.user.id).maybeSingle();
       if (result.error) throw result.error;
       setMember(result.data);
@@ -74,18 +67,11 @@ export function useTakeoffAccount() {
     return () => { live = false; window.removeEventListener("focus", refresh); document.removeEventListener("visibilitychange", refresh); };
   }, [session?.user.id]);
 
-  async function socialSignIn(provider, email = "", employeeId = "") {
-    if (!supabase || !providers?.[provider]) throw new Error(`${provider === "azure" ? "Microsoft" : "Google"} sign-in is not connected yet.`);
-    if (employeeId) employeeSignupData(email, employeeId);
-    const result = await supabase.auth.signInWithOAuth(socialSignInRequest(provider, authReturnUrl(window.location), email));
+  async function socialSignIn(provider) {
+    if (!supabase || !providers?.[provider]) throw new Error("Google sign-in is not connected yet.");
+    const result = await supabase.auth.signInWithOAuth(socialSignInRequest(provider, authReturnUrl(window.location)));
     if (result.error) throw new Error(result.error.message);
     if (!result.data?.url) throw new Error("Sign-in could not be started. Please try again.");
-    try {
-      if (employeeId) saveEmployeeReturn(window.sessionStorage, email, employeeId);
-      else clearEmployeeReturn(window.sessionStorage);
-    } catch {
-      if (employeeId) throw new Error("Allow browser storage for Takeoff so your employee selection can be remembered during Microsoft sign-in.");
-    }
     window.location.assign(result.data.url);
   }
 

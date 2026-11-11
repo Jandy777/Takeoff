@@ -5,7 +5,6 @@ import { EMPLOYEES } from "../library/employeeSignup";
 export function TakeoffSignIn({ account }) {
   const [mode, setMode] = useState("signin");
   const [employeeId, setEmployeeId] = useState("");
-  const [employeePassword, setEmployeePassword] = useState(false);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
@@ -16,7 +15,7 @@ export function TakeoffSignIn({ account }) {
   const choosingName = currentMode === "employee" && !employee;
   const creating = currentMode === "create" || currentMode === "employee";
   function switchMode(next) {
-    setMode(next); setEmployeeId(""); setEmployeePassword(false); setPassword(""); setMessage(""); setError("");
+    setMode(next); setEmployeeId(""); setPassword(""); setMessage(""); setError("");
   }
   async function social(provider) {
     setBusy(true); setError(""); setMessage("");
@@ -26,8 +25,7 @@ export function TakeoffSignIn({ account }) {
   async function submit(event) {
     event.preventDefault(); setBusy(true); setError(""); setMessage("");
     try {
-      if (currentMode === "employee" && !employeePassword) await account.socialSignIn("azure", email.trim(), employeeId);
-      else { setMessage(await account.authenticate(currentMode, email.trim(), password, employeeId)); setPassword(""); }
+      setMessage(await account.authenticate(currentMode, email.trim(), password, employeeId)); setPassword("");
     }
     catch (e) { setError(e.message); } finally { setBusy(false); }
   }
@@ -37,10 +35,10 @@ export function TakeoffSignIn({ account }) {
       <span className="library-eyebrow">TAKEOFF</span>
       <AuthReturnNotice account={account} />
       <h2>{choosingName ? "Choose your name" : currentMode === "employee" ? "Set up employee access" : currentMode === "create" ? "Create a viewer account" : currentMode === "reset" ? "Reset your password" : currentMode === "password" ? "Choose a new password" : "Welcome back"}</h2>
-      <p className="library-muted">{currentMode === "employee" ? employeePassword ? "Confirm your West Suburban work email to create and edit drawings." : "Continue with your West Suburban Microsoft account to create and edit drawings." : currentMode === "create" ? "Use Google to join the shared drawing library. Personal accounts can view drawings and quantities." : "Sign in to your company drawing library."}</p>
+      <p className="library-muted">{currentMode === "employee" ? "Use your West Suburban work email. Your administrator can enable drawing edits after you register." : currentMode === "create" ? "Join the shared drawing library with Google or an email and password. Viewer accounts can see drawings and quantities." : "Sign in to your company drawing library."}</p>
       {["signin", "create"].includes(currentMode) && <>
         <div className="social-signin-options">
-          {[{ id: "azure", name: "Microsoft", mark: "M" }, { id: "google", name: "Google", mark: "G" }].map((provider) => <div key={provider.id}>
+          {[{ id: "google", name: "Google", mark: "G" }].map((provider) => <div key={provider.id}>
             <button className="library-button social-signin" type="button" disabled={busy || !account.providers?.[provider.id]} onClick={() => social(provider.id)}><span className={`provider-mark ${provider.id}`} aria-hidden="true">{provider.mark}</span>Continue with {provider.name}</button>
             {account.providers && !account.providers[provider.id] && <small>{provider.name} sign-in is being connected.</small>}
           </div>)}
@@ -51,10 +49,8 @@ export function TakeoffSignIn({ account }) {
       {choosingName ? <div className="employee-name-list" aria-label="West Suburban employees">{EMPLOYEES.map((person) => <button type="button" key={person.id} className="employee-name-option" onClick={() => setEmployeeId(person.id)}><span>{person.name}</span><span aria-hidden="true">→</span></button>)}</div> : <>
         {currentMode === "employee" && <div className="employee-selected"><strong>{employee.name}</strong><button type="button" disabled={busy} onClick={() => setEmployeeId("")}>Change name</button></div>}
         {currentMode !== "password" && <label>{currentMode === "employee" ? "Work email address" : "Email address"}<input type="email" required autoComplete="email" value={email} onChange={(event) => setEmail(event.target.value)} placeholder={currentMode === "employee" ? "name@concretews.com" : undefined} disabled={busy} /></label>}
-        {currentMode !== "reset" && (currentMode !== "employee" || employeePassword) && <label>Password<input type="password" required minLength={currentMode === "signin" ? 1 : 12} autoComplete={currentMode === "signin" ? "current-password" : "new-password"} value={password} onChange={(event) => setPassword(event.target.value)} disabled={busy} />{currentMode !== "signin" && <small>At least 12 characters.</small>}</label>}
-        <button className="library-button primary" disabled={busy || (currentMode === "employee" && !employeePassword && !account.providers?.azure)}>{busy ? "Please wait…" : currentMode === "employee" && !employeePassword ? "Continue with Microsoft" : creating ? "Create account" : currentMode === "reset" ? "Send reset link" : currentMode === "password" ? "Save new password" : "Sign in"}</button>
-        {currentMode === "employee" && !employeePassword && !account.providers?.azure && <small>{account.providerError || (account.providers ? "Microsoft sign-in is being connected." : "Checking Microsoft sign-in…")}</small>}
-        {currentMode === "employee" && <div className="auth-links"><button type="button" disabled={busy} onClick={() => { setEmployeePassword(!employeePassword); setPassword(""); setError(""); }}>{employeePassword ? "Use Microsoft instead" : "Use email and password instead"}</button></div>}
+        {currentMode !== "reset" && <label>Password<input type="password" required minLength={currentMode === "signin" ? 1 : 12} autoComplete={currentMode === "signin" ? "current-password" : "new-password"} value={password} onChange={(event) => setPassword(event.target.value)} disabled={busy} />{currentMode !== "signin" && <small>At least 12 characters.</small>}</label>}
+        <button className="library-button primary" disabled={busy}>{busy ? "Please wait…" : creating ? "Create account" : currentMode === "reset" ? "Send reset link" : currentMode === "password" ? "Save new password" : "Sign in"}</button>
       </>}
       {(error || account.error) && <p className="library-error" role="alert">{error || account.error}</p>}
       {message && <p className="library-success" role="status">{message}</p>}

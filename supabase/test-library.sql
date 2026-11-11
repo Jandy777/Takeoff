@@ -4,15 +4,16 @@ select set_config('takeoff.test_admin', gen_random_uuid()::text, true);
 select set_config('takeoff.test_estimator', gen_random_uuid()::text, true);
 select set_config('takeoff.test_viewer', gen_random_uuid()::text, true);
 select set_config('takeoff.test_outsider', gen_random_uuid()::text, true);
-insert into public.team_access(email,role) values
-  ('takeoff-admin-test@concretews.com','admin'),
-  ('takeoff-estimator-test@concretews.com','estimator'),
-  ('takeoff-viewer-test@concretews.com','viewer');
 insert into auth.users(id,email,aud,role,email_confirmed_at,created_at,updated_at) values
   (current_setting('takeoff.test_admin')::uuid,'takeoff-admin-test@concretews.com','authenticated','authenticated',now(),now(),now()),
   (current_setting('takeoff.test_estimator')::uuid,'takeoff-estimator-test@concretews.com','authenticated','authenticated',now(),now(),now()),
   (current_setting('takeoff.test_viewer')::uuid,'takeoff-viewer-test@concretews.com','authenticated','authenticated',now(),now(),now()),
   (current_setting('takeoff.test_outsider')::uuid,'takeoff-outsider-test@example.invalid','authenticated','authenticated',now(),now(),now());
+-- Administrators grant roles after registration in the simple signup flow.
+insert into public.team_access(email,role) values
+  ('takeoff-admin-test@concretews.com','admin'),
+  ('takeoff-estimator-test@concretews.com','estimator'),
+  ('takeoff-viewer-test@concretews.com','viewer');
 set local role authenticated;
 select set_config('request.jwt.claims', jsonb_build_object('sub', current_setting('takeoff.test_estimator'), 'role','authenticated')::text, true);
 do $$

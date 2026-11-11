@@ -13,7 +13,6 @@ export const isWorkEmail = (email) => /^[^\s@]+@concretews\.com$/i.test(String(e
 export function employeeSignupData(email, employeeId) {
   if (!EMPLOYEES.some((employee) => employee.id === employeeId)) throw new Error("Choose your name from the employee list.");
   if (!isWorkEmail(email)) throw new Error("Use your @concretews.com work email to create an employee account. Other email addresses can register for view-only access.");
-  // A registration request, never a client-supplied role. The database validates
-  // the roster entry, verified email, and available employee slot.
+  // A request for the administrator to review, never a client-supplied role.
   return { employee_id: employeeId };
 }

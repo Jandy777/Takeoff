@@ -21,6 +21,8 @@ export function DrawingPreview({ record }) {
   if (!preview || preview.empty || preview.error) return <div className="drawing-preview-empty">{preview?.error ? "Preview unavailable" : "No drawing geometry yet"}</div>;
   const { doc, tf } = preview;
   return <div className="drawing-preview-plan" role="img" aria-label="Saved foundation plan preview">
-    <PlanCanvas doc={doc} size={{w:320,h:230}} viewBox="0 0 320 230" tf={tf} toScreen={(x,y)=>[tf.ox+x*tf.scale,tf.oy+y*tf.scale]} toWorld={(x,y)=>[(x-tf.ox)/tf.scale,(y-tf.oy)/tf.scale]} mode="view" groupSelection={[]} tracePts={[]} drainPts={[]} rowColor={(key)=>record.settings?.rowColors?.[key] || "#b9cad6"} shown={()=>true} showDims={false} />
+    <PlanCanvas doc={doc} size={{w:320,h:230}} viewBox="0 0 320 230" tf={tf} toScreen={(x,y)=>[tf.ox+x*tf.scale,tf.oy+y*tf.scale]} toWorld={(x,y)=>[(x-tf.ox)/tf.scale,(y-tf.oy)/tf.scale]} mode="view" groupSelection={[]} tracePts={[]} drainPts={[]} rowColor={(key)=>record.settings?.rowColors?.[key] || "#b9cad6"} shown={()=>true} showDims={false}>
+      {(record.conversion?.repairs||[]).filter(repair=>repair.location).map((repair,index)=><circle key={index} cx={tf.ox+repair.location.x*tf.scale} cy={tf.oy+repair.location.y*tf.scale} r={7} fill="none" stroke="#ff9855" strokeWidth={2.5}><title>Closed CAD corner gap: {repair.gapInches} inches</title></circle>)}
+    </PlanCanvas>
   </div>;
 }

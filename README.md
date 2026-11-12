@@ -94,6 +94,8 @@ This import profile targets the company's existing **WALLS / WALLDATA** CAD work
 
 Conversion runs in a browser worker on the user's device. The source DXF and conversion diagnostics are not uploaded; only the resulting Takeoff document, appearance settings, and project details are saved. Cancelling before creation leaves existing drawings intact. Ordinary text and dimension annotations on the WALLS layer are skipped and counted in the review notes. Files with missing, unsupported, or ambiguous wall geometry stop for review.
 
+Mixed-thickness joins are supported. Small, unambiguous corner gaps up to 2 inches are closed at the face-line intersection; the review shows orange markers and the resulting LF change. Larger or ambiguous gaps remain blocked. Lines with WALLDATA removed are excluded from wall quantities and counted in the notes. Repairs do not bridge parallel omissions or spans covered by untagged linework, preserving intentional takeoff exclusions.
+
 If a DXF contains disconnected wall groups, the preview requires a layout choice before continuing. Each option shows its wall count, thicknesses, and LF; layouts are numbered from left to right. This lets different CAD revisions in the same file become separate Takeoff drawings. An explicit **Keep all layouts together** option is available when the groups belong in one drawing.
 
 The first version imports walls only. Footings use Takeoff defaults; pads, windows, drain tile, ledges, text, and other CAD details must be reviewed or added separately. Direct DWG import and bulk-folder conversion are not included. Files must be nonempty, at most 10 MB, and contain no more than 2,000 model-space wall-face lines.

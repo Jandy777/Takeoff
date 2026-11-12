@@ -1,5 +1,6 @@
 import { wallMeasuredLen, wallPolygon, dist } from "../geometry";
 import { readDocument } from "./documents";
+import { repairCadCorners } from "./cadCornerRepair";
 
 // Pure conversion profile for the company's legacy WALLDATA drawings.
 // Coordinates in DXF inches become feet in Takeoff; no source file is uploaded.
@@ -8,6 +9,22 @@ const EPS=1e-6;
 const distance=(a,b)=>Math.hypot(b.x-a.x,b.y-a.y);
 const midpoint=(a,b)=>({x:(a.x+b.x)/2,y:(a.y+b.y)/2});
 const value=(entity,code)=>entity.tags.find(tag=>tag[0]===code)?.[1];
+const hasWallData=entity=>entity.tags.some(tag=>tag[0]===1001&&tag[1]==='WALLDATA');
+
+function conversionWarnings(conversion) {
+  const notes=[];
+  if(conversion.ignoredAnnotations)notes.push(`${conversion.ignoredAnnotations} CAD annotation${conversion.ignoredAnnotations===1?' was':'s were'} left out of the wall import.`);
+  if(conversion.excludedLines)notes.push(`${conversion.excludedLines} CAD line${conversion.excludedLines===1?' has':'s have'} no wall takeoff data and ${conversion.excludedLines===1?'was':'were'} excluded from wall quantities.`);
+  if(conversion.repairs.length) {
+    const gaps=conversion.repairs.map(repair=>Number(repair.gapInches.toFixed(3))).join('″, ');
+    const change=conversion.trace.reduce((sum,wall)=>sum+(wall.outsideLength-wall.originalOutsideLength)*12,0);
+    const lengthNote=Math.abs(change)<1e-6?'did not change':`${change<0?'decreased':'increased'} by ${Number(Math.abs(change).toFixed(3))}″`;
+    notes.push(`Closed ${conversion.repairs.length} small CAD corner gap${conversion.repairs.length===1?'':'s'} (${gaps}″). Total wall length ${lengthNote}. Review the corrected layout before creating the drawing.`);
+  }
+  notes.push('Wall heights start with the CAD values. Select any wall to change its height.',
+    'Footings use Takeoff defaults. Windows, pads, drain tile, ledges, and other CAD details are not included.');
+  return notes;
+}
 
 // Group touching wall footprints, so separate layouts/revisions in one DXF
 // can be imported independently. SAT also handles angled wall bands.
@@ -50,11 +67,15 @@ export function selectCadLayout(result,id) {
   const layout=result?.conversion.layouts?.find(item=>item.id===id);
   if(!layout)return null;
   const ids=new Set(layout.wallIds);
+  const trace=result.conversion.trace.filter(wall=>ids.has(wall.id));
+  const handles=new Set(trace.flatMap(wall=>wall.sourceHandles));
+  const conversion={...result.conversion,wallCount:layout.wallCount,totalLF:layout.totalLF,
+    selectedLayout:layout.name,trace,repairs:result.conversion.repairs.filter(repair=>repair.handles.some(handle=>handles.has(handle)))};
+  conversion.warnings=conversionWarnings(conversion);
   return {...result,document:readDocument({...result.document,walls:result.document.walls.filter(wall=>ids.has(wall.id))}),
-    conversion:{...result.conversion,wallCount:layout.wallCount,totalLF:layout.totalLF,
-      selectedLayout:layout.name,trace:result.conversion.trace.filter(wall=>ids.has(wall.id))}};
+    conversion};
 }
-export function convertLegacyCad(text,{units}={}) {
+export function convertLegacyCad(text,{units,repairSmallGaps=true}={}) {
   if (typeof text === 'string' && text.length > MAX_CAD_BYTES) throw Error('Choose a DXF smaller than 10 MB.');
   if(typeof text!=='string'||text.startsWith('AutoCAD Binary DXF'))throw Error('Export an ASCII DXF from the original CAD program.');
   const source=text.replace(/^\uFEFF/,'').split(/\r?\n/),sections=Object.create(null);let section=null,ended=false;
@@ -75,10 +96,12 @@ export function convertLegacyCad(text,{units}={}) {
   const entities=[];let entity=null;
   for(const [code,v]of sections.ENTITIES){if(code===0){entity={type:v,tags:[]};entities.push(entity);}else if(entity)entity.tags.push([code,v]);}
   const wallLayer=entities.filter(e=>value(e,8)?.toUpperCase()==='WALLS'&&value(e,67)!=='1');
+  if(!wallLayer.length)throw Error('No model-space WALLS layer was found.');
   const annotations=wallLayer.filter(e=>['TEXT','MTEXT','DIMENSION'].includes(e.type)
-    && !e.tags.some(tag=>tag[0]===1001&&tag[1]==='WALLDATA'));
-  const wallEntities=wallLayer.filter(e=>!annotations.includes(e));
-  if(!wallEntities.length)throw Error('No model-space WALLS layer was found.');
+    && !hasWallData(e));
+  const untagged=wallLayer.filter(e=>e.type==='LINE'&&!hasWallData(e));
+  const wallEntities=wallLayer.filter(e=>!annotations.includes(e)&&!untagged.includes(e));
+  if(!wallEntities.length)throw Error('No walls carrying legacy takeoff data (WALLDATA) were found in this DXF.');
   if(wallEntities.some(e=>e.type!=='LINE'))throw Error('The WALLS layer contains unsupported geometry. Review it before converting.');
   if(wallEntities.length>2000)throw Error('This DXF has too many wall faces for a single import. Export one foundation layout at a time.');
   const edges=wallEntities.map(e=>{
@@ -89,9 +112,15 @@ export function convertLegacyCad(text,{units}={}) {
     const [thickness,height,color]=numbers,face=Number(data.find(tag=>tag[0]===1030)?.[1]);
     const a={x:Number(value(e,10)),y:-Number(value(e,20))},b={x:Number(value(e,11)),y:-Number(value(e,21))};
     if(![a.x,a.y,b.x,b.y,thickness,height,color,face].every(Number.isFinite)||thickness<=0||height<=0||![0,99].includes(face)||distance(a,b)<EPS)throw Error('Some CAD walls have invalid dimensions or incomplete wall information. Review the walls in CAD before importing.');
-    return{handle:value(e,5),a,b,thickness,height,color,face,key:numbers.join('|')};
+    return{handle:value(e,5),a,b,originalA:{...a},originalB:{...b},thickness,height,color,face,key:numbers.join('|')};
   });
+  const excluded=untagged.map(e=>({a:{x:Number(value(e,10)),y:-Number(value(e,20))},b:{x:Number(value(e,11)),y:-Number(value(e,21))}}))
+    .filter(line=>[line.a.x,line.a.y,line.b.x,line.b.y].every(Number.isFinite));
+  const repairs=repairSmallGaps?repairCadCorners(edges,excluded):[];
   const outer=edges.filter(e=>e.face===99),inner=edges.filter(e=>e.face===0),used=new Set(),pairs=[];
+  // Miter cutbacks depend on the adjoining wall's thickness, so a 10-inch
+  // run meeting 12-inch walls can legitimately exceed twice its own width.
+  const maxCornerWidth=Math.max(...edges.map(edge=>edge.thickness));
   for(const outside of outer){
     const length=distance(outside.a,outside.b),ux=(outside.b.x-outside.a.x)/length,uy=(outside.b.y-outside.a.y)/length;
     const candidates=[];
@@ -104,7 +133,7 @@ export function convertLegacyCad(text,{units}={}) {
       const t0=along(a),t1=along(b);
       if(Math.abs(da-db)>EPS||Math.abs(Math.abs(da)-outside.thickness)>EPS||(length>=outside.thickness&&Math.min(length,t1)-Math.max(0,t0)<EPS))continue;
       const score=Math.abs(t0)+Math.abs(t1-length);
-      if(score>outside.thickness*2+EPS)continue;
+      if(score>maxCornerWidth*2+EPS)continue;
       candidates.push({inside,a,b,score});
     }
     candidates.sort((a,b)=>a.score-b.score);
@@ -127,7 +156,7 @@ export function convertLegacyCad(text,{units}={}) {
     const a=feet(pair.a),b=feet(pair.b),outside=pair.outside,origin=feet(outside.a),finish=feet(outside.b);
     const cross=(b.x-a.x)*(origin.y-a.y)-(b.y-a.y)*(origin.x-a.x);
     const wall={id:walls.length+1,x1:a.x,y1:a.y,x2:b.x,y2:b.y,thickness:outside.thickness,depth:outside.height/12,footing:null,lengthBasis:'outside',pendingFace:true,traceSide:cross>0?-1:1,faceStart:origin,faceEnd:finish};
-    walls.push(wall);trace.push({id:wall.id,sourceHandles:[outside.handle,pair.inside.handle],outsideLength:distance(outside.a,outside.b)/12,sourcePolygon:pair.polygon.map(feet)});
+    walls.push(wall);trace.push({id:wall.id,sourceHandles:[outside.handle,pair.inside.handle],outsideLength:distance(outside.a,outside.b)/12,originalOutsideLength:distance(outside.originalA,outside.originalB)/12,sourcePolygon:pair.polygon.map(feet)});
   }
   if (!walls.length) throw Error('No complete walls were found in this DXF.');
   // A plausible pairing is not enough: the existing editor must reproduce
@@ -144,12 +173,12 @@ export function convertLegacyCad(text,{units}={}) {
   }
   const document = readDocument({walls});
   const layouts = cadLayouts(walls,trace);
-  return { document, settings: {rowColors:{}}, conversion: {
+  const conversion={
     profile:'legacy-WALLDATA-v1', units:'inches', sourceWallEdges:edges.length,
     pairedRuns:pairs.length, duplicateSquareFacePairs:duplicateFaces.length,
     wallCount:walls.length, totalLF:trace.reduce((sum,wall)=>sum+wall.outsideLength,0),
-    ignoredAnnotations:annotations.length, layouts,
-    trace, warnings:[...(annotations.length ? [`${annotations.length} CAD annotation${annotations.length===1?' was':'s were'} left out of the wall import.`] : []),'Wall heights start with the CAD values. Select any wall to change its height.',
-      'Footings use Takeoff defaults. Windows, pads, drain tile, ledges, and other CAD details are not included.']
-  }};
+    ignoredAnnotations:annotations.length,excludedLines:untagged.length,layouts,repairs:repairs.map(repair=>({...repair,location:feet(repair.after)})),trace
+  };
+  conversion.warnings=conversionWarnings(conversion);
+  return {document,settings:{rowColors:{}},conversion};
 }

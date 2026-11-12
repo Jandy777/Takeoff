@@ -16,7 +16,7 @@ import { selected } from "../selection";
 // (wall run, ruler, area trace, window/well placement). Purely presentational —
 // all interaction state and handlers are owned by useEditorInteractions.
 export function PlanCanvas({
-  svgRef, size, tf, toScreen, toWorld, viewBox,
+  svgRef, size, tf, toScreen, toWorld, viewBox, children,
   doc, sel, selWall,
   groupSelection, selectionBox,
   filletFirst,
@@ -202,6 +202,7 @@ export function PlanCanvas({
       })()}
 
       {/* scale bar */}
+      {children}
       <g>
         <rect x={16} y={size.h - 34} width={tf.scale * 10} height={4} fill="#5c646b" />
         <text x={16} y={size.h - 40} fontSize={10} fontFamily={mono} fill="#5c646b">10 ft</text>

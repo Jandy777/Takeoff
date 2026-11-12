@@ -39,8 +39,9 @@ export function CadImportCard({cad,canEdit,error,onClose,onContinue}) {
           <small>Separate wall groups were found. They may be different layouts or revisions. Layouts are numbered from left to right.</small>
         </label>}
         <div className="cad-import-summary"><strong>{cad.sourceName}</strong><span>{cad.result ? `${cad.result.conversion.wallCount} editable walls · ${formatFtIn(cad.result.conversion.totalLF)} wall LF` : `${cad.layouts.length} layouts found — choose one above to continue`}</span></div>
+        {(cad.result||cad.preview).conversion.repairs?.length>0 && <p className="cad-repair-notice">Small CAD corner gaps were closed. Orange markers show the adjusted corners; the length changes are listed below.</p>}
         <div className="drawing-preview cad-import-preview"><DrawingPreview record={cad.result || cad.preview}/></div>
-        <div className="cad-review-notes"><strong>Before you continue</strong><ul>{cad.preview.conversion.warnings.map(note=><li key={note}>{note}</li>)}</ul></div>
+        <div className="cad-review-notes"><strong>Before you continue</strong><ul>{(cad.result||cad.preview).conversion.warnings.map(note=><li key={note}>{note}</li>)}</ul></div>
       </>}
       <div className="drawing-card-footer"><button type="button" className="library-button" onClick={onClose}>Cancel</button><button type="button" className="library-button primary" disabled={!cad.result||cad.busy||!canEdit} onClick={()=>onContinue({...cad.result,sourceName:cad.sourceName})}>Continue to drawing details →</button></div>
     </section>

@@ -5,11 +5,13 @@ export function DrawingDetailsCard({ kind, initialDetails, active, drawings, bus
   const [details, setDetails] = useState(() => kind === "details" ? { ...BLANK_DETAILS, ...active } : kind === "revise" ? { ...BLANK_DETAILS, ...active, print_revision: "" } : { ...BLANK_DETAILS, ...initialDetails });
   const card = useRef(null);
   const first = useRef(null);
+  const actions = useRef({busy,onClose});
+  actions.current = {busy,onClose};
   useEffect(() => {
     const previous = document.activeElement;
     first.current?.focus();
     const key = (event) => {
-      if (event.key === "Escape" && !busy) { event.preventDefault(); onClose(); }
+      if (event.key === "Escape" && !actions.current.busy) { event.preventDefault(); actions.current.onClose(); }
       if (event.key !== "Tab") return;
       const items = [...card.current.querySelectorAll('button:not(:disabled),input:not(:disabled),select:not(:disabled),[tabindex="0"]')];
       const target = event.shiftKey ? items[items.length - 1] : items[0];
@@ -17,7 +19,7 @@ export function DrawingDetailsCard({ kind, initialDetails, active, drawings, bus
     };
     document.addEventListener("keydown", key);
     return () => { document.removeEventListener("keydown", key); previous?.focus(); };
-  }, [busy, onClose]);
+  }, []);
   const update = (key) => (event) => setDetails((value) => ({ ...value, [key]: event.target.value }));
   const title = kind === "revise" ? "Create a new revision" : kind === "details" ? "Drawing details" : kind === "capture" ? "Save this drawing" : kind === "import" ? "Create drawing from CAD" : "Create a drawing";
   const customers = [...new Set(drawings.map((drawing) => drawing.customer_name))];

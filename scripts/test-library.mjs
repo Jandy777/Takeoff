@@ -90,6 +90,17 @@ try {
   const adminLibrary = renderToStaticMarkup(React.createElement(DrawingLibrary, { library: libraryProps, account: { ...viewerAccount, canEdit: true, isAdmin: true } }));
   assert.ok(adminLibrary.includes("New drawing") && adminLibrary.includes("Team access"));
   assert.ok(adminLibrary.includes("Import CAD drawing"));
+  const refreshingAccount = { ...viewerAccount, loading: true, canEdit: true };
+  for (const modal of ["create","capture","revise","details","import-details"]) {
+    const duringRefresh = renderToStaticMarkup(React.createElement(DrawingLibrary, { library: {...libraryProps,modal}, account: refreshingAccount }));
+    assert.ok(duringRefresh.includes('role="dialog"'), `${modal} remains mounted during a background access refresh`);
+    assert.ok(!duringRefresh.includes("Opening your library"));
+  }
+  const initialAccess = renderToStaticMarkup(React.createElement(DrawingLibrary, { library: {...libraryProps,modal:"create"}, account: {...refreshingAccount,member:null} }));
+  assert.ok(initialAccess.includes("Opening your library"));
+  assert.ok(!initialAccess.includes('role="dialog"'), "initial access checks still gate the drawing card");
+  const lostAccess = renderToStaticMarkup(React.createElement(DrawingLibrary, { library: {...libraryProps,modal:"create"}, account: {...refreshingAccount,loading:false,member:null} }));
+  assert.ok(!lostAccess.includes('role="dialog"'), "actual removal of membership still gates the drawing card");
   const previewHtml = renderToStaticMarkup(React.createElement(DrawingPreview, { record: { document: doc, settings: payload.settings } }));
   assert.ok(previewHtml.includes('viewBox="0 0 320 230"'), "saved geometry scales to fit the thumbnail rather than clipping");
   assert.ok(previewHtml.includes("Field note"));

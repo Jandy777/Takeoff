@@ -26,7 +26,7 @@ export function useDrawingLibrary({ account, document, rowColors, onLoad }) {
   const saved = useRef("");
   const pending = useRef(Promise.resolve());
   const latest = useRef({ document, rowColors, onLoad, account });
-  latest.current = { document, rowColors, onLoad, account };
+  latest.current = { document, rowColors, onLoad, account, modal };
   const recoveryKey = account.session?.user.id ? `takeoff.recovery.v1.${account.session.user.id}` : null;
   const recoveryKeyRef = useRef(recoveryKey);
   recoveryKeyRef.current = recoveryKey;
@@ -43,9 +43,12 @@ export function useDrawingLibrary({ account, document, rowColors, onLoad }) {
 
   const refresh = useCallback(async () => {
     if (!account.member) return;
-    setBusy(true); setError("");
+    // Membership refreshes may also refresh the list while details are being
+    // entered. Keep that read from disabling the form or moving its focus.
+    const background = Boolean(latest.current.modal);
+    if (!background) { setBusy(true); setError(""); }
     try { setDrawings(await repository.list()); } catch (e) { setError(e.message); }
-    finally { setBusy(false); }
+    finally { if (!background) setBusy(false); }
   }, [account.member]);
   useEffect(() => { refresh(); }, [refresh]);
   useEffect(() => {

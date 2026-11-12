@@ -16,7 +16,7 @@ import { selected } from "../selection";
 // (wall run, ruler, area trace, window/well placement). Purely presentational —
 // all interaction state and handlers are owned by useEditorInteractions.
 export function PlanCanvas({
-  svgRef, size, tf, toScreen, toWorld,
+  svgRef, size, tf, toScreen, toWorld, viewBox,
   doc, sel, selWall,
   groupSelection, selectionBox,
   filletFirst,
@@ -35,7 +35,7 @@ export function PlanCanvas({
 
   return (
     <svg
-      ref={svgRef} width={size.w} height={size.h}
+      ref={svgRef} width={size.w} height={size.h} viewBox={viewBox}
       style={{ display: "block", cursor: mode === "view" ? "grab" : mode === "select" ? "default" : "crosshair", userSelect: "none", touchAction: mode === "view" ? "none" : "auto" }}
       onMouseDown={onMouseDown} onMouseMove={onMouseMove} onMouseUp={onMouseUp} onMouseLeave={onMouseUp}
       onWheel={onWheel} onContextMenu={(e) => e.preventDefault()}

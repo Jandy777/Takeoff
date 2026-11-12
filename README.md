@@ -6,7 +6,7 @@
 
 Takeoff is a browser-based tool for recreating residential foundation layouts from plan dimensions, checking them in 2D and 3D, and generating a bill of materials (BOM). It supports estimating, drawing revisions, and field viewing for both custom jobs and tract-home projects.
 
-**Current status — November 11, 2026:** deployed on Netlify with Supabase accounts, cloud drawing storage, revisions, and owner-controlled team access.
+**Current status — November 12, 2026:** deployed on Netlify with Supabase accounts, a folder-based drawing library, cloud storage, revisions, and owner-controlled team access.
 
 ## How it fits the estimating workflow
 
@@ -74,8 +74,10 @@ Wall and footing colors are independent, so changing a footing size does not cha
 
 ## Drawing library and revisions
 
-- Drawings are grouped by **customer and project**. Tract models, elevations, and print revisions remain separate drawings even when they share a project name.
-- Search includes drawing details such as city, estimator, model, and revision.
+- The dark **Folder Explorer** organizes existing drawings by **builder/customer → project → model → elevation**, omitting optional levels when blank. Print revisions remain separate files. Folders derive from saved details; no manual file moves or PDF uploads are required.
+- Sidebar views include **All drawings**, **Custom jobs**, **Tract homes**, and **Builders**, with an expandable folder tree and clickable breadcrumbs.
+- Select a drawing to see its saved-plan preview, builder/customer, project, city, estimator, and revision details. **Open drawing** (or double-click the file) opens the editor. Tablet layouts move the details panel below the file list.
+- Search finds drawing details such as city, estimator, model, and revision across folders within the selected view.
 - Editing autosaves to Supabase. The save indicator distinguishes saved, unsaved, saving, and error states.
 - Browser recovery drafts retain recent unsaved work per account/drawing. A JSON backup can also be exported.
 - Saves use version checks to prevent silently overwriting another user's newer work.

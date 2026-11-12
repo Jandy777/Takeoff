@@ -51,6 +51,21 @@ try {
   assert.equal(groupDrawings(variants, "casey")[0].drawings[0].id, "c", "estimator name is searchable");
   assert.equal(groupDrawings(variants, "", "custom")[0].drawings.length, 1);
   assert.equal(drawingTitle(variants[0]), "Aspen · Elevation A");
+  const { buildFolders, resolveFolder, searchDrawings } = await server.ssrLoadModule("/src/foundation/library/folders.js");
+  const folderTree = buildFolders(variants);
+  assert.equal(folderTree.count, 5);
+  assert.equal(folderTree.children.length, 2);
+  const aspenFolder = resolveFolder(folderTree, ["builder", "shared project", "aspen", "elevation a"]);
+  assert.equal(aspenFolder.drawings.length, 2, "revisions remain separate files in the same elevation folder");
+  assert.equal(resolveFolder(folderTree, ["Builder", "Shared Project", "Missing model"]).path.length, 2, "a refreshed or renamed folder falls back to its surviving parent");
+  assert.equal(buildFolders(variants, "custom").count, 1);
+  assert.equal(buildFolders(variants, "tract").count, 4);
+  assert.equal(buildFolders(variants, "builders").count, 5);
+  assert.equal(searchDrawings(variants, " AURORA ")[0].id, "c");
+  assert.equal(searchDrawings(variants, "casey", "custom").length, 0);
+  assert.equal(buildFolders([...variants, { ...variants[0], id: "case-variant", customer_name: " builder " }]).children.length, 2, "capitalization does not split a builder folder");
+  const noModel = buildFolders([{ id: "no-model", customer_name: "Customer", project_name: "Job", elevation: "B" }]);
+  assert.equal(resolveFolder(noModel, ["Customer", "Job", "Elevation B"]).drawings[0].id, "no-model");
   const doc = { ...EMPTY_DOC, walls: [{ id: 5500, x1: 0, y1: 0, x2: 15, y2: 0, thickness: 10, depth: 8, footing: { w: 24, h: 10 }, lengthBasis: "outside", traceSide: 1, faceStart: { x: 0, y: 0 }, faceEnd: { x: 15, y: 0 } }], drains: [{ id: 5501, kind: "exterior", pts: [{ x: 0, y: 0, anchor: { wallId: 5500, corner: 0 } }] }], texts: [{ id: 5502, x: 0, y: 0, text: "Field note", size: 6, color: "#ff0000" }] };
   const payload = drawingPayload(doc, { "wall-color|10|8": "#ddaa44" });
   const reopened = readDocument(JSON.parse(JSON.stringify(payload.document)));
@@ -63,6 +78,20 @@ try {
   reserveEntityIds(reopened);
   assert.ok(nid() > 5502, "new items do not reuse identifiers after reopening a drawing");
   const { DrawingDetailsCard } = await server.ssrLoadModule("/src/foundation/ui/DrawingDetailsCard.jsx");
+  const { DrawingLibrary } = await server.ssrLoadModule("/src/foundation/ui/DrawingLibrary.jsx");
+  const { DrawingPreview } = await server.ssrLoadModule("/src/foundation/ui/DrawingPreview.jsx");
+  const libraryProps = { open: true, drawings: variants, setModal() {}, setError() {} };
+  const viewerAccount = { session: { user: { id: "viewer", email: "viewer@example.invalid" } }, member: { role: "viewer" }, canEdit: false, isAdmin: false };
+  const viewerLibrary = renderToStaticMarkup(React.createElement(DrawingLibrary, { library: libraryProps, account: viewerAccount }));
+  for (const label of ["All drawings", "Custom jobs", "Tract homes", "Builders", "Your account", "Drawing details"]) assert.ok(viewerLibrary.includes(label));
+  assert.ok(!viewerLibrary.includes("New drawing"));
+  assert.ok(!viewerLibrary.includes("Team access"));
+  const adminLibrary = renderToStaticMarkup(React.createElement(DrawingLibrary, { library: libraryProps, account: { ...viewerAccount, canEdit: true, isAdmin: true } }));
+  assert.ok(adminLibrary.includes("New drawing") && adminLibrary.includes("Team access"));
+  const previewHtml = renderToStaticMarkup(React.createElement(DrawingPreview, { record: { document: doc, settings: payload.settings } }));
+  assert.ok(previewHtml.includes('viewBox="0 0 320 230"'), "saved geometry scales to fit the thumbnail rather than clipping");
+  assert.ok(previewHtml.includes("Field note"));
+  assert.match(renderToStaticMarkup(React.createElement(DrawingPreview, { record: { document: { schemaVersion: 999 } } })), /Preview unavailable/);
   const { useTakeoffAccount } = await server.ssrLoadModule("/src/foundation/hooks/useTakeoffAccount.js");
   function SignedOutAccount() {
     const account = useTakeoffAccount();
@@ -98,5 +127,5 @@ try {
   assert.ok(unconnectedHtml.includes("Google sign-in is being connected."));
   const html = renderToStaticMarkup(React.createElement(DrawingDetailsCard, { kind: "create", drawings: [], busy: false, error: "", onClose() {}, onSubmit() {} }));
   for (const field of ["Customer name", "Project name", "City", "Estimator name", "Print date / revision", "Model name", "Elevation"]) assert.ok(html.includes(field), `${field} appears on the creation card`);
-  console.log("Library tests passed: metadata, tract variants, search, complete drawing round-trip, colors, anchors, loaded IDs, and creation form.");
+  console.log("Library tests passed: folders, variants, search, viewer/admin controls, saved-plan previews, complete drawing round-trip, colors, anchors, loaded IDs, and creation form.");
 } finally { await server.close(); }

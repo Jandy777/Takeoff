@@ -1,8 +1,8 @@
 import React, { useEffect, useRef, useState } from "react";
 import { BLANK_DETAILS } from "../library/documents";
 
-export function DrawingDetailsCard({ kind, active, drawings, busy, error, onClose, onSubmit }) {
-  const [details, setDetails] = useState(() => kind === "details" ? { ...BLANK_DETAILS, ...active } : kind === "revise" ? { ...BLANK_DETAILS, ...active, print_revision: "" } : { ...BLANK_DETAILS });
+export function DrawingDetailsCard({ kind, initialDetails, active, drawings, busy, error, onClose, onSubmit }) {
+  const [details, setDetails] = useState(() => kind === "details" ? { ...BLANK_DETAILS, ...active } : kind === "revise" ? { ...BLANK_DETAILS, ...active, print_revision: "" } : { ...BLANK_DETAILS, ...initialDetails });
   const card = useRef(null);
   const first = useRef(null);
   useEffect(() => {
@@ -19,12 +19,12 @@ export function DrawingDetailsCard({ kind, active, drawings, busy, error, onClos
     return () => { document.removeEventListener("keydown", key); previous?.focus(); };
   }, [busy, onClose]);
   const update = (key) => (event) => setDetails((value) => ({ ...value, [key]: event.target.value }));
-  const title = kind === "revise" ? "Create a new revision" : kind === "details" ? "Drawing details" : kind === "capture" ? "Save this drawing" : "Create a drawing";
+  const title = kind === "revise" ? "Create a new revision" : kind === "details" ? "Drawing details" : kind === "capture" ? "Save this drawing" : kind === "import" ? "Create drawing from CAD" : "Create a drawing";
   const customers = [...new Set(drawings.map((drawing) => drawing.customer_name))];
   const projects = [...new Set(drawings.filter((drawing) => !details.customer_name || drawing.customer_name.toLowerCase() === details.customer_name.toLowerCase()).map((drawing) => drawing.project_name))];
   return <div className="library-scrim" onMouseDown={(event) => { if (event.target === event.currentTarget && !busy) onClose(); }}>
     <form className="drawing-card" ref={card} role="dialog" aria-modal="true" aria-labelledby="drawing-card-title" onSubmit={(event) => { event.preventDefault(); onSubmit(details); }}>
-      <div className="card-heading"><span className="library-eyebrow">DRAWING DETAILS</span><button type="button" className="library-icon-button" aria-label="Close drawing details" onClick={onClose} disabled={busy}>×</button></div>
+      <div className="card-heading"><span className="library-eyebrow">{kind === "import" ? "DRAWING DETAILS · STEP 2 OF 2" : "DRAWING DETAILS"}</span><button type="button" className="library-icon-button" aria-label="Close drawing details" onClick={onClose} disabled={busy}>×</button></div>
       <h2 id="drawing-card-title">{title}</h2>
       <p className="library-muted">{kind === "revise" ? "The previous revision will be preserved. Your new revision starts with a copy of its drawing." : "Give this drawing a home. Models and elevations can share the same project."}</p>
       <fieldset className="job-type-choice"><legend>Job type</legend>{[["custom", "Custom job"], ["tract", "Tract home"]].map(([value, label]) => <label key={value} className={details.job_type === value ? "chosen" : ""}><input type="radio" name="job_type" value={value} checked={details.job_type === value} onChange={update("job_type")} disabled={busy} />{label}</label>)}</fieldset>

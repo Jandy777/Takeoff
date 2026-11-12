@@ -2,16 +2,22 @@ import React from "react";
 import { DrawingDetailsCard } from "./DrawingDetailsCard";
 import { TakeoffSignIn } from "./TakeoffSignIn";
 import { LibraryWorkspace } from "./LibraryWorkspace";
+import { CadImportCard } from "./CadImportCard";
+import { useCadImport } from "../hooks/useCadImport";
 import "./library.css";
 
 export function DrawingLibrary({ library, account, hasUnfiledDrawing }) {
-  const closeModal = React.useCallback(() => { library.setModal(null); library.setError(""); }, [library.setModal, library.setError]);
+  const cad = useCadImport();
+  React.useEffect(() => { if(library.modal !== "import") cad.reset(); },[library.modal,cad.reset]);
+  const closeModal = React.useCallback(() => { if(library.cancelModal)library.cancelModal();else{library.setModal(null); library.setError("");} }, [library.cancelModal,library.setModal, library.setError]);
   const gated = !account.session || account.recovery || !account.member || account.loading;
   return <>
     {(library.open || gated) && <div className="drawing-library" role="region" aria-label="Drawing library">
       {account.loading ? <div className="library-loading" role="status">Opening your library…</div> : !account.session || account.recovery ? <TakeoffSignIn account={account} /> : !account.member ? <div className="library-loading"><h2>Your account needs access</h2><p>Ask your Takeoff administrator to add {account.session.user.email} to the team.</p>{account.error && <p className="library-error">{account.error}</p>}<div><button className="library-button" onClick={account.refreshMember}>Check access again</button> <button className="library-button" onClick={library.signOut}>Sign out</button></div></div> : <LibraryWorkspace key={account.session.user.id} library={library} account={account} hasUnfiledDrawing={hasUnfiledDrawing}/>}
     </div>}
-    {library.modal && !gated && <DrawingDetailsCard key={library.modal} kind={library.modal} active={library.active} drawings={library.drawings} busy={library.busy} error={library.error} onClose={closeModal} onSubmit={library.submit}/>}
+    {library.modal && !gated && (library.modal === "import"
+      ? <CadImportCard cad={cad} canEdit={account.canEdit} error={library.error} onClose={closeModal} onContinue={library.beginImport}/>
+      : <DrawingDetailsCard key={library.modal} kind={library.modal === "import-details" ? "import" : library.modal} initialDetails={library.modal === "import-details" ? {project_name:library.importDraft?.sourceName?.replace(/\.dxf$/i,"") || ""} : undefined} active={library.active} drawings={library.drawings} busy={library.busy} error={library.error} onClose={closeModal} onSubmit={library.submit}/>)}
   </>;
 }
 

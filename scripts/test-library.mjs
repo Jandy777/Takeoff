@@ -85,9 +85,11 @@ try {
   const viewerLibrary = renderToStaticMarkup(React.createElement(DrawingLibrary, { library: libraryProps, account: viewerAccount }));
   for (const label of ["All drawings", "Custom jobs", "Tract homes", "Builders", "Your account", "Drawing details"]) assert.ok(viewerLibrary.includes(label));
   assert.ok(!viewerLibrary.includes("New drawing"));
+  assert.ok(!viewerLibrary.includes("Import CAD drawing"));
   assert.ok(!viewerLibrary.includes("Team access"));
   const adminLibrary = renderToStaticMarkup(React.createElement(DrawingLibrary, { library: libraryProps, account: { ...viewerAccount, canEdit: true, isAdmin: true } }));
   assert.ok(adminLibrary.includes("New drawing") && adminLibrary.includes("Team access"));
+  assert.ok(adminLibrary.includes("Import CAD drawing"));
   const previewHtml = renderToStaticMarkup(React.createElement(DrawingPreview, { record: { document: doc, settings: payload.settings } }));
   assert.ok(previewHtml.includes('viewBox="0 0 320 230"'), "saved geometry scales to fit the thumbnail rather than clipping");
   assert.ok(previewHtml.includes("Field note"));
@@ -127,5 +129,7 @@ try {
   assert.ok(unconnectedHtml.includes("Google sign-in is being connected."));
   const html = renderToStaticMarkup(React.createElement(DrawingDetailsCard, { kind: "create", drawings: [], busy: false, error: "", onClose() {}, onSubmit() {} }));
   for (const field of ["Customer name", "Project name", "City", "Estimator name", "Print date / revision", "Model name", "Elevation"]) assert.ok(html.includes(field), `${field} appears on the creation card`);
+  const importHtml = renderToStaticMarkup(React.createElement(DrawingDetailsCard, { kind: "import", initialDetails: {project_name:"Sample archive drawing"}, drawings: [], onClose() {}, onSubmit() {} }));
+  assert.ok(importHtml.includes("Create drawing from CAD") && importHtml.includes("Sample archive drawing"));
   console.log("Library tests passed: folders, variants, search, viewer/admin controls, saved-plan previews, complete drawing round-trip, colors, anchors, loaded IDs, and creation form.");
 } finally { await server.close(); }

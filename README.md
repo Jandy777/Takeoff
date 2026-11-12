@@ -86,6 +86,18 @@ Wall and footing colors are independent, so changing a footing size does not cha
 
 Drawing geometry is stored as versioned JSON, with appearance settings and project metadata. There are no PDF storage buckets in the current implementation. See [the storage and revision notes](supabase/README.md#saves-and-revisions).
 
+### Importing the existing CAD archive
+
+Estimators and administrators can choose **Import CAD drawing** beside **New drawing**. Select a legacy ASCII DXF, review the wall preview and LF, then complete the usual drawing-details card. **Create drawing** saves a separate editable drawing through the existing library; selecting and editing its walls works normally. **New drawing** continues to start with an empty plan.
+
+This import profile targets the company's existing **WALLS / WALLDATA** CAD workflow, using inches. It pairs wall faces, reads thickness and initial height, removes duplicate descriptions of square sections, and checks the resulting wall footprints and outside-face lengths against the source before allowing creation. Heights can be adjusted after import without changing LF.
+
+Conversion runs in a browser worker on the user's device. The source DXF and conversion diagnostics are not uploaded; only the resulting Takeoff document, appearance settings, and project details are saved. Cancelling before creation leaves existing drawings intact. Ordinary text and dimension annotations on the WALLS layer are skipped and counted in the review notes. Files with missing, unsupported, or ambiguous wall geometry stop for review.
+
+If a DXF contains disconnected wall groups, the preview requires a layout choice before continuing. Each option shows its wall count, thicknesses, and LF; layouts are numbered from left to right. This lets different CAD revisions in the same file become separate Takeoff drawings. An explicit **Keep all layouts together** option is available when the groups belong in one drawing.
+
+The first version imports walls only. Footings use Takeoff defaults; pads, windows, drain tile, ledges, text, and other CAD details must be reviewed or added separately. Direct DWG import and bulk-folder conversion are not included. Files must be nonempty, at most 10 MB, and contain no more than 2,000 model-space wall-face lines.
+
 ## Accounts and team access
 
 Email/password signup is active and does not require a confirmation email. The employee signup path offers the configured West Suburban name list and requires a work email, but choosing a name or entering a company address does not automatically grant editing.

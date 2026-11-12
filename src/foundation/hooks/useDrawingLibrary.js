@@ -17,6 +17,7 @@ export function useDrawingLibrary({ account, document, rowColors, onLoad }) {
   const [active, setActive] = useState(null);
   const [open, setOpen] = useState(true);
   const [modal, setModal] = useState(null);
+  const [importDraft, setImportDraft] = useState(null);
   const [busy, setBusy] = useState(false);
   const [status, setStatus] = useState("saved");
   const [error, setError] = useState("");
@@ -34,6 +35,7 @@ export function useDrawingLibrary({ account, document, rowColors, onLoad }) {
     const next = account.session?.user.id;
     if (userRef.current && userRef.current !== next) {
       activeRef.current = null; setActive(null); setDrawings([]); setOpen(true); setStatus("saved");
+      setImportDraft(null); setModal(null);
       latest.current.onLoad({ ...EMPTY_DOC }, {});
     }
     userRef.current = next;
@@ -126,10 +128,23 @@ export function useDrawingLibrary({ account, document, rowColors, onLoad }) {
   }
   function openDrawing(id) { return run(async () => { await saveNow(); setCurrent(await repository.open(id)); }); }
   function showLibrary() { return run(async () => { await saveNow(); setOpen(true); await refresh(); }); }
+  const cancelModal = useCallback(() => { setModal(null); setImportDraft(null); setError(""); }, []);
+  function beginImport(draft) {
+    if (!latest.current.account.canEdit) { setError("Editing access is required to import a drawing."); return; }
+    try {
+      const payload = drawingPayload(draft.document, draft.settings?.rowColors || {});
+      if (!payload.document.walls.length) throw new Error("No imported walls are available.");
+      setImportDraft({...payload,sourceName:draft.sourceName}); setError(""); setModal("import-details");
+    } catch (e) { setError(e.message); }
+  }
   function submit(details) {
     return run(async () => {
       const values = cleanDetails(details);
+      const imported = modal === "import-details";
+      const importingUser = latest.current.account.session?.user.id;
+      if (imported && (!latest.current.account.canEdit || !importDraft)) throw new Error("Import the CAD file again before creating this drawing.");
       await saveNow();
+      if (imported && (latest.current.account.session?.user.id !== importingUser || !latest.current.account.canEdit)) throw new Error("Your account access changed. Sign in and import the CAD file again.");
       if (modal === "details") {
         const current = activeRef.current;
         const updated = await repository.save(current.id, current.version, values);
@@ -138,8 +153,8 @@ export function useDrawingLibrary({ account, document, rowColors, onLoad }) {
       }
       const record = modal === "revise"
         ? await repository.revise(activeRef.current.id, activeRef.current.version, values)
-        : await repository.create(values, drawingPayload(modal === "capture" ? latest.current.document : EMPTY_DOC, modal === "capture" ? latest.current.rowColors : {}));
-      setCurrent(record); setModal(null); await refresh(); return true;
+        : await repository.create(values, imported ? drawingPayload(importDraft.document, importDraft.settings.rowColors) : drawingPayload(modal === "capture" ? latest.current.document : EMPTY_DOC, modal === "capture" ? latest.current.rowColors : {}));
+      setCurrent(record); setModal(null); setImportDraft(null); await refresh(); return true;
     });
   }
   function restoreRecovery() {
@@ -169,10 +184,11 @@ export function useDrawingLibrary({ account, document, rowColors, onLoad }) {
     return run(async () => {
       await saveNow(); await account.signOut();
       activeRef.current = null; setActive(null); setDrawings([]); setOpen(true); setStatus("saved");
+      setImportDraft(null); setModal(null);
       latest.current.onLoad({ ...EMPTY_DOC }, {});
     });
   }
 
-  return { drawings, active, open, setOpen, modal, setModal, busy, status, error, setError, recovery,
+  return { drawings, active, open, setOpen, modal, setModal, importDraft, beginImport, cancelModal, busy, status, error, setError, recovery,
     refresh, saveNow, openDrawing, showLibrary, submit, restoreRecovery, exportBackup, signOut };
 }

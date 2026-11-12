@@ -1,8 +1,9 @@
-import React, { useMemo, useState } from "react";
+import React, { useMemo } from "react";
 import { FolderSimple, File, CaretDown, CaretRight, MagnifyingGlass, ArrowSquareOut, Plus, ArrowClockwise, House, Users, User, SignOut } from "@phosphor-icons/react";
 import { buildFolders, resolveFolder, searchDrawings, drawingPath } from "../library/folders";
 import { drawingTitle } from "../library/documents";
 import { useDrawingPreview } from "../hooks/useDrawingPreview";
+import { useLibraryNavigation } from "../hooks/useLibraryNavigation";
 import { DrawingPreview } from "./DrawingPreview";
 import { TakeoffTeam } from "./TakeoffTeam";
 import { TakeoffAccount } from "./TakeoffAccount";
@@ -31,7 +32,7 @@ function Inspector({ drawing, library, account, previewLoader }) {
 }
 
 export function LibraryWorkspace({ library, account, hasUnfiledDrawing, previewLoader }) {
-  const [section,setSection]=useState("all"), [path,setPath]=useState([]), [query,setQuery]=useState(""), [selectedId,setSelectedId]=useState(null), [expanded,setExpanded]=useState(new Set());
+  const {section,setSection,path,setPath,query,setQuery,selectedId,setSelectedId,expanded,setExpanded}=useLibraryNavigation(account.session.user.id);
   const tree=useMemo(()=>buildFolders(library.drawings,section),[library.drawings,section]);
   const current=resolveFolder(tree,path), searching=Boolean(query.trim());
   const files=searching?searchDrawings(library.drawings,query,section):current.drawings;

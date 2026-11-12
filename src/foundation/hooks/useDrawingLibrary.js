@@ -42,14 +42,16 @@ export function useDrawingLibrary({ account, document, rowColors, onLoad }) {
   }, [account.session?.user.id]);
 
   const refresh = useCallback(async () => {
-    if (!account.member) return;
+    if (!latest.current.account.member) return;
     // Membership refreshes may also refresh the list while details are being
     // entered. Keep that read from disabling the form or moving its focus.
     const background = Boolean(latest.current.modal);
     if (!background) { setBusy(true); setError(""); }
     try { setDrawings(await repository.list()); } catch (e) { setError(e.message); }
     finally { if (!background) setBusy(false); }
-  }, [account.member]);
+  // A refreshed copy of the same membership is not a new library. Only fetch
+  // automatically when access changes; explicit Refresh still fetches on demand.
+  }, [account.member?.user_id]);
   useEffect(() => { refresh(); }, [refresh]);
   useEffect(() => {
     if (!recoveryKey) { setRecovery(null); return; }

@@ -29,7 +29,12 @@ export function useCadImport() {
       task.postMessage({text});
     } catch { if (current === generation.current) setState({error:"Could not read this file. Check that it is available on this device."}); }
   }, []);
-  const selected = useMemo(()=>state.result ? selectCadLayout(state.result,state.layoutId) : null,[state.result,state.layoutId]);
-  const chooseLayout = useCallback((layoutId)=>setState(previous=>({...previous,layoutId})),[]);
-  return {...state,result:selected,preview:state.result,layouts:state.result?.conversion.layouts||[],chooseLayout,readFile,reset};
+  const selected = useMemo(()=>state.result ? selectCadLayout(state.result,state.layoutId==='all'?'all':[state.layoutId,...(state.extraLayoutIds||[])]) : null,[state.result,state.layoutId,state.extraLayoutIds]);
+  const chooseLayout = useCallback((layoutId)=>setState(previous=>({...previous,layoutId,extraLayoutIds:[]})),[]);
+  const toggleLayout = useCallback((id)=>setState(previous=>{
+    if(!previous.layoutId||previous.layoutId==='all'||id===previous.layoutId||!previous.result?.conversion.layouts.some(layout=>layout.id===id))return previous;
+    const ids=new Set(previous.extraLayoutIds||[]);if(ids.has(id))ids.delete(id);else ids.add(id);
+    return {...previous,extraLayoutIds:[...ids]};
+  }),[]);
+  return {...state,result:selected,preview:state.result,layouts:state.result?.conversion.layouts||[],chooseLayout,toggleLayout,readFile,reset};
 }

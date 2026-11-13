@@ -15,7 +15,8 @@ function conversionWarnings(conversion) {
   const notes=[];
   if(conversion.ignoredAnnotations)notes.push(`${conversion.ignoredAnnotations} CAD annotation${conversion.ignoredAnnotations===1?' was':'s were'} left out of the wall import.`);
   if(conversion.excludedLines)notes.push(`${conversion.excludedLines} CAD line${conversion.excludedLines===1?' has':'s have'} no wall takeoff data and ${conversion.excludedLines===1?'was':'were'} excluded from wall quantities.`);
-  if(conversion.junctionDetails?.length)notes.push(`${conversion.junctionDetails.length} short, one-sided CAD end or junction lines were found. They are highlighted in orange and excluded from wall LF. Review these locations before continuing; they have no opposing face defining a separate wall.`);
+  if(conversion.ignoredZeroLengthLines)notes.push(`${conversion.ignoredZeroLengthLines} zero-length CAD wall ${conversion.ignoredZeroLengthLines===1?'remnant was':'remnants were'} ignored. These points have no wall length and do not define a layout.`);
+  if(conversion.junctionDetails?.length)notes.push(`${conversion.junctionDetails.length} short, one-sided CAD end or junction ${conversion.junctionDetails.length===1?'line was':'lines were'} found. They are highlighted in orange and excluded from wall LF. Review these locations before continuing; they have no opposing face defining a separate wall.`);
   if(conversion.preservedCadEnds)notes.push(`Original CAD corner cuts were retained on ${conversion.preservedCadEnds} wall${conversion.preservedCadEnds===1?'':'s'} to preserve their exact face lengths.`);
   if(conversion.repairs.length) {
     const gaps=conversion.repairs.map(repair=>Number(repair.gapInches.toFixed(3))).join('″, ');
@@ -66,13 +67,14 @@ function cadLayouts(walls,trace) {
 
 export function selectCadLayout(result,id) {
   if(id==='all')return result;
-  const layout=result?.conversion.layouts?.find(item=>item.id===id);
-  if(!layout)return null;
-  const ids=new Set(layout.wallIds);
+  const selectedIds=[...new Set(Array.isArray(id)?id:[id])];
+  const layouts=selectedIds.map(selectedId=>result?.conversion.layouts?.find(item=>item.id===selectedId));
+  if(!layouts.length||layouts.some(layout=>!layout))return null;
+  const ids=new Set(layouts.flatMap(layout=>layout.wallIds));
   const trace=result.conversion.trace.filter(wall=>ids.has(wall.id));
   const handles=new Set(trace.flatMap(wall=>wall.sourceHandles));
-  const conversion={...result.conversion,wallCount:layout.wallCount,totalLF:layout.totalLF,
-    selectedLayout:layout.name,trace,repairs:result.conversion.repairs.filter(repair=>repair.handles.some(handle=>handles.has(handle))),
+  const conversion={...result.conversion,wallCount:ids.size,totalLF:trace.reduce((sum,wall)=>sum+wall.outsideLength,0),
+    selectedLayout:layouts.map(layout=>layout.name).join(' + '),trace,repairs:result.conversion.repairs.filter(repair=>repair.handles.some(handle=>handles.has(handle))),
     junctionDetails:(result.conversion.junctionDetails||[]).filter(detail=>detail.wallHandles.some(handle=>handles.has(handle))),
     preservedCadEnds:result.document.walls.filter(wall=>ids.has(wall.id)&&wall.cadEndCuts).length};
   conversion.warnings=conversionWarnings(conversion);
@@ -108,6 +110,7 @@ export function convertLegacyCad(text,{units,repairSmallGaps=true}={}) {
   if(!wallEntities.length)throw Error('No walls carrying legacy takeoff data (WALLDATA) were found in this DXF.');
   if(wallEntities.some(e=>e.type!=='LINE'))throw Error('The WALLS layer contains unsupported geometry. Review it before converting.');
   if(wallEntities.length>2000)throw Error('This DXF has too many wall faces for a single import. Export one foundation layout at a time.');
+  let ignoredZeroLengthLines=0;
   const edges=wallEntities.map(e=>{
     const start=e.tags.findIndex(tag=>tag[0]===1001&&tag[1]==='WALLDATA');
     if(start<0)throw Error('The DXF is missing its legacy wall information (WALLDATA). Export a fresh copy from your CAD program.');
@@ -115,9 +118,11 @@ export function convertLegacyCad(text,{units,repairSmallGaps=true}={}) {
     const data=e.tags.slice(start+1,end),numbers=data.filter(tag=>tag[0]===1040).map(tag=>Number(tag[1]));
     const [thickness,height,color]=numbers,face=Number(data.find(tag=>tag[0]===1030)?.[1]);
     const a={x:Number(value(e,10)),y:-Number(value(e,20))},b={x:Number(value(e,11)),y:-Number(value(e,21))};
-    if(![a.x,a.y,b.x,b.y,thickness,height,color,face].every(Number.isFinite)||thickness<=0||height<=0||![0,99].includes(face)||distance(a,b)<EPS)throw Error('Some CAD walls have invalid dimensions or incomplete wall information. Review the walls in CAD before importing.');
+    if(![a.x,a.y,b.x,b.y,thickness,height,color,face].every(Number.isFinite)||thickness<=0||height<=0||![0,99].includes(face))throw Error('Some CAD walls have invalid dimensions or incomplete wall information. Review the walls in CAD before importing.');
+    if(distance(a,b)<EPS){ignoredZeroLengthLines++;return null;}
     return{handle:value(e,5),a,b,originalA:{...a},originalB:{...b},thickness,height,color,face,key:numbers.join('|')};
-  });
+  }).filter(Boolean);
+  if(!edges.length)throw Error('No complete walls were found in this DXF after ignoring zero-length lines.');
   const excluded=untagged.map(e=>({a:{x:Number(value(e,10)),y:-Number(value(e,20))},b:{x:Number(value(e,11)),y:-Number(value(e,21))}}))
     .filter(line=>[line.a.x,line.a.y,line.b.x,line.b.y].every(Number.isFinite));
   const repairs=repairSmallGaps?repairCadCorners(edges,excluded):[];
@@ -157,7 +162,7 @@ export function convertLegacyCad(text,{units,repairSmallGaps=true}={}) {
   const document = readDocument({walls});
   const layouts = cadLayouts(walls,trace);
   const conversion={
-    profile:'legacy-WALLDATA-v1', units:'inches', sourceWallEdges:edges.length,
+    profile:'legacy-WALLDATA-v1', units:'inches', sourceWallEdges:wallEntities.length,ignoredZeroLengthLines,
     pairedRuns:pairs.length, duplicateSquareFacePairs:duplicateFaces.length,
     wallCount:walls.length, totalLF:trace.reduce((sum,wall)=>sum+wall.outsideLength,0),
     ignoredAnnotations:annotations.length,excludedLines:untagged.length,layouts,repairs:repairs.map(repair=>({...repair,location:feet(repair.after)})),trace,

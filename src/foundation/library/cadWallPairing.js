@@ -38,7 +38,9 @@ export function pairCadWallFaces(edges) {
     const length=distance(edge.a,edge.b);
     if(length>edge.thickness*2+JOIN_TOLERANCE)throw pairingError();
     const attachments=[edge.a,edge.b].map(point=>pairs.filter(pair=>onEdge(point,pair.outside)||onEdge(point,pair.inside)));
-    if(attachments.some(items=>!items.length)||!attachments.flat().some(pair=>pair.outside.key===edge.key))throw pairingError();
+    // End/junction details can retain an old height or color after a wall edit.
+    // Their thickness must still match an attached, completely paired wall.
+    if(attachments.some(items=>!items.length)||!attachments.flat().some(pair=>Math.abs(pair.outside.thickness-edge.thickness)<EPS))throw pairingError();
     // A connector must cross at least one real wall face, rather than simply
     // continuing its direction. This rejects stray parallel wall fragments.
     const dx=(edge.b.x-edge.a.x)/length,dy=(edge.b.y-edge.a.y)/length;

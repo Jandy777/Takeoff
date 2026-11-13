@@ -40,6 +40,17 @@ try {
   assert.equal(computeTakeoff({...result.document,walls:changed}).totalLF,40);
   assert.deepEqual(changed.map(w=>wallPolygon(w,changed,q=>q.thickness/12)),walls.map(w=>wallPolygon(w,walls,q=>q.thickness/12)));
   assert.equal(convertLegacyCad(dxf([...edges].reverse()),{units:"inches"}).conversion.totalLF,40,"entity order does not define pairing");
+  for(const face of [0,99]) {
+    const withPoint=convertLegacyCad(dxf([...edges,edge("ZERO",[9000,9000],[9000,9000],face)]),{units:"inches"});
+    assert.equal(withPoint.conversion.ignoredZeroLengthLines,1);
+    assert.equal(withPoint.conversion.sourceWallEdges,9);
+    assert.equal(withPoint.conversion.layouts.length,1,"a distant zero-length remnant cannot become another layout");
+    assert.deepEqual(withPoint.document,result.document,"zero-length remnants cannot shift the plan origin, add walls or change lengths");
+    assert.match(withPoint.conversion.warnings.join(" "),/zero-length CAD wall remnant/);
+  }
+  assert.throws(()=>convertLegacyCad(dxf([edge("ONLY-POINT",[0,0],[0,0],0)]),{units:"inches"}),/No complete walls/);
+  assert.throws(()=>convertLegacyCad(dxf([...edges,edge("INVALID-POINT",[0,0],[0,0],0,8,0)]),{units:"inches"}),/invalid dimensions/,"zero length does not bypass invalid specification checks");
+  assert.throws(()=>convertLegacyCad(dxf([...edges,edge("INVALID-WALL",[240,0],[360,0],99,8,0)]),{units:"inches"}),/invalid dimensions/,"real walls with invalid dimensions remain blocked");
   assert.equal(convertLegacyCad(dxf(edges,1)).conversion.units,"inches");
   assert.throws(()=>convertLegacyCad(dxf()),/Confirm inches/);
   assert.throws(()=>convertLegacyCad(dxf(edges,2),{units:"inches"}),/inch drawings/);
@@ -63,6 +74,10 @@ try {
   assert.equal(capped.conversion.totalLF,10);
   assert.equal(computeTakeoff(capped.document).totalLF,10);
   assert.equal(capped.conversion.junctionDetails.length,1);
+  const staleCap=convertLegacyCad(dxf([...cappedRun.slice(0,2),edge("OLD-CAP",[120,0],[120,-8],99,8,42,230)]),{units:"inches"});
+  assert.equal(staleCap.conversion.junctionDetails.length,1,"a connected cap can retain an old height/color after wall edits");
+  assert.equal(staleCap.conversion.totalLF,10);
+  assert.throws(()=>convertLegacyCad(dxf([...cappedRun.slice(0,2),edge("WRONG-WIDTH-CAP",[120,0],[120,-8],99,12,42,230)]),{units:"inches"}),/unambiguously/,"an unmatched detail must still agree with an attached wall thickness");
   assert.match(capped.conversion.warnings.join(" "),/excluded from wall LF/);
   assert.throws(()=>convertLegacyCad(dxf([...cappedRun,edge("DUPLICATE-O",[0,0],[120,0],99)]),{units:"inches"}),/unambiguously/,"a second outside face cannot be discarded as a cap");
   assert.throws(()=>convertLegacyCad(dxf([...edges,edge("ORPHAN",[240,0],[248,0],99)]),{units:"inches"}),/unambiguously/,"a short unmatched line away from paired walls still stops conversion");
@@ -121,6 +136,17 @@ try {
     assert.equal(computeTakeoff(selected.document).totalLF,40,"the other layout cannot double quantities");
   }
   assert.equal(selectCadLayout(multiple,"all").document.walls.length,8);
+  const threeGroups=convertLegacyCad(dxf([...edges,...shifted,...transformEdges(cappedRun,0,720,240),edge("ZERO-BETWEEN",[600,100],[600,100],0)]),{units:"inches"});
+  assert.equal(threeGroups.conversion.layouts.length,3);
+  const selectedGroups=selectCadLayout(threeGroups,["layout-1","layout-3"]);
+  assert.equal(selectedGroups.document.walls.length,5,"a detached component can be included without importing the other revision");
+  assert.equal(selectedGroups.conversion.totalLF,50);
+  assert.equal(computeTakeoff(selectedGroups.document).totalLF,50);
+  assert.equal(selectedGroups.conversion.junctionDetails.length,1);
+  assert.equal(selectCadLayout(threeGroups,["layout-2"]).conversion.junctionDetails.length,0);
+  assert.equal(selectCadLayout(threeGroups,["layout-1","layout-1","layout-3"]).conversion.totalLF,50,"selected groups cannot be double counted");
+  assert.equal(selectCadLayout(threeGroups,[]),null);
+  assert.equal(selectCadLayout(threeGroups,["layout-1","missing"]),null,"invalid selections cannot silently become partial imports");
   const mixedInside=[[12,-10],[108,-10],[108,-110],[12,-110]],widths=[10,12,10,12];
   const mixedEdges=outside.flatMap((point,i)=>[edge(`M${i}`,point,outside[(i+1)%4],99,widths[i]),edge(`N${i}`,mixedInside[i],mixedInside[(i+1)%4],0,widths[i])]);
   const mixed=convertLegacyCad(dxf(mixedEdges),{units:"inches"});
@@ -147,6 +173,11 @@ try {
   const partialOmission=[0,"LINE",5,"OMITTED-PART",8,"WALLS",10,0,20,0,11,0.1,21,0];
   assert.throws(()=>convertLegacyCad(dxf([...gappedEdges,partialOmission]),{units:"inches"}),/corners or wall lengths/,"even a partial overlap with excluded material blocks an automatic repair");
   const {CadImportCard}=await server.ssrLoadModule("/src/foundation/ui/CadImportCard.jsx");
+  const combinedReview=renderToStaticMarkup(React.createElement(CadImportCard,{canEdit:true,cad:{preview:threeGroups,result:selectedGroups,layouts:threeGroups.conversion.layouts,layoutId:"layout-1",extraLayoutIds:["layout-3"],sourceName:"Detached garage.dxf"},onClose(){},onContinue(){}}));
+  assert.match(combinedReview,/Include other wall groups with this drawing/);
+  assert.match(combinedReview,/detached garages/);
+  assert.match(combinedReview,/5 editable walls/);
+  assert.match(combinedReview,/<input[^>]*checked=""/,"additional selected wall groups are visible in the review");
   const junctionReview=renderToStaticMarkup(React.createElement(CadImportCard,{canEdit:true,cad:{preview:joined,result:joined,layouts:joined.conversion.layouts,layoutId:"all",sourceName:"Junction.dxf"},onClose(){},onContinue(){}}));
   assert.match(junctionReview,/I reviewed the highlighted end\/junction details/);
   assert.match(junctionReview,/<button[^>]*disabled=""[^>]*>Continue to drawing details/,"one-sided junction details need explicit review before import");

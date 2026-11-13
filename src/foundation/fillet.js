@@ -58,7 +58,13 @@ export function filletWalls(doc, first, second) {
     if (doc.walls.some((q) => q.id !== w.id && q.id !== other.id && (same(q.x1, q.y1, old.x, old.y) || same(q.x2, q.y2, old.x, old.y)))) return { error: "That wall end is already connected. Choose a free end." };
   }
   if (hasAttachments(doc, [a.id, b.id])) return { error: "A selected wall has attached windows, wings, ledges, or drain tile. Remove those attachments before filleting." };
-  const move = (w, end) => end === 1 ? { ...w, x1: point.x, y1: point.y } : { ...w, x2: point.x, y2: point.y };
+  const move = (w, end) => {
+    const result=end === 1 ? { ...w, x1: point.x, y1: point.y } : { ...w, x2: point.x, y2: point.y };
+    // An explicitly joined end uses the new corner; retain any CAD cut only
+    // at the wall's other, untouched end.
+    if(w.cadEndCuts){result.cadEndCuts={...w.cadEndCuts};delete result.cadEndCuts[end===1?"start":"end"];}
+    return result;
+  };
   let walls = doc.walls.map((w) => w.id === a.id ? move(w, first.end) : w.id === b.id ? move(w, second.end) : w);
   const loop = pendingLoop(walls, a.id);
   if (loop) {

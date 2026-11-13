@@ -1,9 +1,13 @@
-import React, { useEffect, useRef } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { DrawingPreview } from "./DrawingPreview";
 import { formatFtIn } from "../geometry";
 
 export function CadImportCard({cad,canEdit,error,onClose,onContinue}) {
   const card = useRef(null), fileInput = useRef(null);
+  const [reviewed,setReviewed]=useState(false);
+  const review=cad.result||cad.preview;
+  const needsReview=Boolean(review?.conversion.junctionDetails?.length);
+  useEffect(()=>{setReviewed(false);},[review]);
   useEffect(() => {
     const previous = document.activeElement;
     fileInput.current?.focus();
@@ -40,10 +44,13 @@ export function CadImportCard({cad,canEdit,error,onClose,onContinue}) {
         </label>}
         <div className="cad-import-summary"><strong>{cad.sourceName}</strong><span>{cad.result ? `${cad.result.conversion.wallCount} editable walls · ${formatFtIn(cad.result.conversion.totalLF)} wall LF` : `${cad.layouts.length} layouts found — choose one above to continue`}</span></div>
         {(cad.result||cad.preview).conversion.repairs?.length>0 && <p className="cad-repair-notice">Small CAD corner gaps were closed. Orange markers show the adjusted corners; the length changes are listed below.</p>}
+        {needsReview && <p className="cad-repair-notice">Short end or junction lines are shown in orange. They are excluded from wall LF because they have no matching wall face. Review these locations before continuing.</p>}
         <div className="drawing-preview cad-import-preview"><DrawingPreview record={cad.result || cad.preview}/></div>
+        {needsReview && <details className="cad-detail-closeups"><summary>View close-ups of {review.conversion.junctionDetails.length} highlighted details</summary><div>{review.conversion.junctionDetails.map((detail,index)=><figure key={detail.handle}><DrawingPreview record={review} focusDetail={detail}/><figcaption>Detail {index+1} · {Number(detail.lengthInches.toFixed(3))}″ source line</figcaption></figure>)}</div></details>}
         <div className="cad-review-notes"><strong>Before you continue</strong><ul>{(cad.result||cad.preview).conversion.warnings.map(note=><li key={note}>{note}</li>)}</ul></div>
+        {needsReview && <label className="cad-junction-review"><input type="checkbox" checked={reviewed} onChange={event=>setReviewed(event.target.checked)}/>I reviewed the highlighted end/junction details and their exclusion from wall LF.</label>}
       </>}
-      <div className="drawing-card-footer"><button type="button" className="library-button" onClick={onClose}>Cancel</button><button type="button" className="library-button primary" disabled={!cad.result||cad.busy||!canEdit} onClick={()=>onContinue({...cad.result,sourceName:cad.sourceName})}>Continue to drawing details →</button></div>
+      <div className="drawing-card-footer"><button type="button" className="library-button" onClick={onClose}>Cancel</button><button type="button" className="library-button primary" disabled={!cad.result||cad.busy||!canEdit||(needsReview&&!reviewed)} onClick={()=>onContinue({...cad.result,sourceName:cad.sourceName})}>Continue to drawing details →</button></div>
     </section>
   </div>;
 }

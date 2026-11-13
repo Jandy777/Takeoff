@@ -66,6 +66,13 @@ export function lineIntersect(p1, d1, p2, d2) {
 // Corners of a wall band at endpoint P. d = unit vector pointing from P into the wall.
 export function endCorners(P, d, halfW, allWalls, w, widthOf) {
   const n = rot90(d);
+  const cut = w.cadEndCuts?.[P.x === w.x1 && P.y === w.y1 ? "start" : "end"];
+  if (Number.isFinite(cut) && Math.abs(cut) <= 8) {
+    return [1, -1].map((side) => ({
+      x: P.x + (n.x + d.x * cut) * halfW * side,
+      y: P.y + (n.y + d.y * cut) * halfW * side,
+    }));
+  }
   const butt = [
     { x: P.x + n.x * halfW, y: P.y + n.y * halfW },
     { x: P.x - n.x * halfW, y: P.y - n.y * halfW },
@@ -298,7 +305,9 @@ export function wallFaceLengths(w, allWalls, widthOf) {
   const cb = endCorners({ x: w.x2, y: w.y2 }, { x: -d.x, y: -d.y }, halfW, allWalls, w, widthOf);
   const plusLen = dist(ca[0].x, ca[0].y, cb[1].x, cb[1].y);
   const minusLen = dist(ca[1].x, ca[1].y, cb[0].x, cb[0].y);
-  if (plusIn === minusIn) {
+  // An imported cut retains the CAD face designation even at a shared junction
+  // where region detection cannot establish a unique enclosed interior.
+  if (plusIn === minusIn || w.cadEndCuts) {
     if (w.pendingFace && (w.traceSide === 1 || w.traceSide === -1)) {
       const interiorSide = w.lengthBasis === "inside" ? -w.traceSide : w.traceSide;
       return interiorSide > 0

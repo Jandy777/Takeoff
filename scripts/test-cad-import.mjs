@@ -12,6 +12,17 @@ const edges=outside.flatMap((a,i)=>[edge(`A${i}`,a,outside[(i+1)%4],99),edge(`B$
 function dxf(entities=edges,units=0) {
   return [0,"SECTION",2,"HEADER",9,"$INSUNITS",70,units,0,"ENDSEC",0,"SECTION",2,"ENTITIES",...entities.flat(),0,"ENDSEC",0,"EOF",""].join("\n");
 }
+function transformEdges(entities,angle,dx,dy) {
+  const c=Math.cos(angle),s=Math.sin(angle);
+  return entities.map(entity=>{
+    const result=[...entity];
+    for(const [xc,yc] of [[10,20],[11,21]]) {
+      const ix=entity.findIndex((value,index)=>index%2===0&&value===xc)+1,iy=entity.findIndex((value,index)=>index%2===0&&value===yc)+1;
+      result[ix]=entity[ix]*c-entity[iy]*s+dx;result[iy]=entity[ix]*s+entity[iy]*c+dy;
+    }
+    return result;
+  });
+}
 const server=await createServer({configFile:false,root:process.cwd(),cacheDir:".tools/vite-test-cache",logLevel:"silent",appType:"custom",resolve:{preserveSymlinks:true},server:{middlewareMode:true}});
 try {
   const {convertLegacyCad,selectCadLayout,MAX_CAD_BYTES}=await server.ssrLoadModule("/src/foundation/library/legacyCad.js");
@@ -46,6 +57,47 @@ try {
   assert.equal(computeTakeoff(withSquare.document).totalLF,41.5);
   const ambiguous=[...edges,edge("Bextra",[8,-8],[112,-8],0)];
   assert.throws(()=>convertLegacyCad(dxf(ambiguous),{units:"inches"}),/unambiguously/);
+  const cappedRun=[edge("RUN-O",[0,0],[120,0],99),edge("RUN-I",[0,-8],[120,-8],0),edge("CAP",[120,0],[120,-8],99)];
+  const capped=convertLegacyCad(dxf(cappedRun),{units:"inches"});
+  assert.equal(capped.document.walls.length,1,"an end cap does not become another wall");
+  assert.equal(capped.conversion.totalLF,10);
+  assert.equal(computeTakeoff(capped.document).totalLF,10);
+  assert.equal(capped.conversion.junctionDetails.length,1);
+  assert.match(capped.conversion.warnings.join(" "),/excluded from wall LF/);
+  assert.throws(()=>convertLegacyCad(dxf([...cappedRun,edge("DUPLICATE-O",[0,0],[120,0],99)]),{units:"inches"}),/unambiguously/,"a second outside face cannot be discarded as a cap");
+  assert.throws(()=>convertLegacyCad(dxf([...edges,edge("ORPHAN",[240,0],[248,0],99)]),{units:"inches"}),/unambiguously/,"a short unmatched line away from paired walls still stops conversion");
+  const junction=[...edges,edge("BRANCH-O",[0,-8],[0,48],99),edge("BRANCH-I",[8,0],[8,48],0),edge("BRANCH-CAP",[0,48],[8,48],99)];
+  const joined=convertLegacyCad(dxf(junction),{units:"inches"});
+  assert.equal(joined.document.walls.length,5);
+  assert.equal(joined.conversion.junctionDetails.length,1);
+  assert.ok(joined.conversion.preservedCadEnds>0,"shared source junctions retain their actual cut angles");
+  const expectedJunctionLF=40+56/12;
+  assert.ok(Math.abs(computeTakeoff(joined.document).totalLF-expectedJunctionLF)<1e-7);
+  for(const trace of joined.conversion.trace) {
+    const wall=joined.document.walls.find(w=>w.id===trace.id),poly=wallPolygon(wall,joined.document.walls,q=>q.thickness/12);
+    assert.ok(Math.abs(wallMeasuredLen(wall,joined.document.walls,"outside")-trace.outsideLength)<1e-7);
+    assert.ok(trace.sourcePolygon.every(p=>poly.some(q=>Math.hypot(q.x-p.x,q.y-p.y)<1e-7)),"all source corners survive the junction conversion");
+  }
+  assert.ok(Math.abs(convertLegacyCad(dxf([...junction].reverse()),{units:"inches"}).conversion.totalLF-expectedJunctionLF)<1e-7,"cap recognition works before or after its wall entities");
+  const rotatedJunction=convertLegacyCad(dxf(transformEdges(junction,Math.PI/6,5000,4000)),{units:"inches"});
+  assert.ok(Math.abs(rotatedJunction.conversion.totalLF-expectedJunctionLF)<1e-7,"shared cuts and end details also work in rotated drawings at large CAD coordinates");
+  assert.equal(rotatedJunction.conversion.junctionDetails.length,1);
+  const separateCap=convertLegacyCad(dxf([...edges,...transformEdges(cappedRun,0,240,240)]),{units:"inches"});
+  const plainLayout=separateCap.conversion.layouts.find(layout=>layout.wallCount===4),capLayout=separateCap.conversion.layouts.find(layout=>layout.wallCount===1);
+  assert.equal(selectCadLayout(separateCap,plainLayout.id).conversion.junctionDetails.length,0,"selecting another layout does not retain unrelated detail warnings");
+  assert.equal(selectCadLayout(separateCap,capLayout.id).conversion.junctionDetails.length,1);
+  const reopenedJunction=readDocument(drawingPayload(joined.document,{}).document);
+  assert.deepEqual(reopenedJunction,joined.document,"CAD corner cuts survive saved-file round trips");
+  assert.ok(Math.abs(computeTakeoff({...reopenedJunction,walls:reopenedJunction.walls.map(w=>({...w,depth:5}))}).totalLF-expectedJunctionLF)<1e-7,"height edits cannot change the imported wall LF");
+  const {resizeWallToMeasuredLength}=await server.ssrLoadModule("/src/foundation/geometry.js");
+  const cutWall=joined.document.walls.find(w=>w.cadEndCuts),originalMeasured=wallMeasuredLen(cutWall,joined.document.walls,"outside");
+  const resized=resizeWallToMeasuredLength(cutWall.id,joined.document.walls,originalMeasured+2,"outside");
+  assert.ok(Math.abs(wallMeasuredLen(resized.find(w=>w.id===cutWall.id),resized,"outside")-originalMeasured-2)<1e-4,"wall length remains editable with a preserved CAD cut");
+  const {filletWalls}=await server.ssrLoadModule("/src/foundation/fillet.js");
+  const filleted=filletWalls({walls:[{id:1,x1:0,y1:0,x2:10,y2:0,thickness:8,cadEndCuts:{start:0,end:1}},{id:2,x1:12,y1:3,x2:12,y2:10,thickness:8,cadEndCuts:{start:1,end:0}}]}, {id:1,end:2}, {id:2,end:1});
+  assert.equal(filleted.error,undefined);
+  assert.deepEqual(filleted.walls[0].cadEndCuts,{start:0},"filleting replaces only the CAD cut at the joined end");
+  assert.deepEqual(filleted.walls[1].cadEndCuts,{end:0});
   const notes=[0,"TEXT",5,"NOTE1",8,"WALLS",10,20,20,20,1,"Wing note"];
   const multiNote=[0,"MTEXT",5,"NOTE2",8,"WALLS",10,20,20,20,1,"CAD note"];
   const dimension=[0,"DIMENSION",5,"NOTE3",8,"WALLS",10,20,20,20];
@@ -95,6 +147,11 @@ try {
   const partialOmission=[0,"LINE",5,"OMITTED-PART",8,"WALLS",10,0,20,0,11,0.1,21,0];
   assert.throws(()=>convertLegacyCad(dxf([...gappedEdges,partialOmission]),{units:"inches"}),/corners or wall lengths/,"even a partial overlap with excluded material blocks an automatic repair");
   const {CadImportCard}=await server.ssrLoadModule("/src/foundation/ui/CadImportCard.jsx");
+  const junctionReview=renderToStaticMarkup(React.createElement(CadImportCard,{canEdit:true,cad:{preview:joined,result:joined,layouts:joined.conversion.layouts,layoutId:"all",sourceName:"Junction.dxf"},onClose(){},onContinue(){}}));
+  assert.match(junctionReview,/I reviewed the highlighted end\/junction details/);
+  assert.match(junctionReview,/<button[^>]*disabled=""[^>]*>Continue to drawing details/,"one-sided junction details need explicit review before import");
+  const {DrawingPreview}=await server.ssrLoadModule("/src/foundation/ui/DrawingPreview.jsx");
+  assert.match(renderToStaticMarkup(React.createElement(DrawingPreview,{record:joined})),/End\/junction detail excluded from wall LF/,"the review preview marks the source detail locations");
   const review=renderToStaticMarkup(React.createElement(CadImportCard,{canEdit:true,cad:{preview:multiple,result:null,layouts:multiple.conversion.layouts,layoutId:"",sourceName:"Sample.dxf"},onClose(){},onContinue(){}}));
   assert.match(review,/Layout to import/);
   assert.match(review,/<button[^>]*disabled=""[^>]*>Continue to drawing details/);

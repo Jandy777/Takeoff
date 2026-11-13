@@ -1,13 +1,13 @@
 import { wallMeasuredLen, wallPolygon, dist } from "../geometry";
 import { readDocument } from "./documents";
 import { repairCadCorners } from "./cadCornerRepair";
+import { pairCadWallFaces, cadEndCuts } from "./cadWallPairing";
 
 // Pure conversion profile for the company's legacy WALLDATA drawings.
 // Coordinates in DXF inches become feet in Takeoff; no source file is uploaded.
 export const MAX_CAD_BYTES = 10 * 1024 * 1024;
 const EPS=1e-6;
 const distance=(a,b)=>Math.hypot(b.x-a.x,b.y-a.y);
-const midpoint=(a,b)=>({x:(a.x+b.x)/2,y:(a.y+b.y)/2});
 const value=(entity,code)=>entity.tags.find(tag=>tag[0]===code)?.[1];
 const hasWallData=entity=>entity.tags.some(tag=>tag[0]===1001&&tag[1]==='WALLDATA');
 
@@ -15,6 +15,8 @@ function conversionWarnings(conversion) {
   const notes=[];
   if(conversion.ignoredAnnotations)notes.push(`${conversion.ignoredAnnotations} CAD annotation${conversion.ignoredAnnotations===1?' was':'s were'} left out of the wall import.`);
   if(conversion.excludedLines)notes.push(`${conversion.excludedLines} CAD line${conversion.excludedLines===1?' has':'s have'} no wall takeoff data and ${conversion.excludedLines===1?'was':'were'} excluded from wall quantities.`);
+  if(conversion.junctionDetails?.length)notes.push(`${conversion.junctionDetails.length} short, one-sided CAD end or junction lines were found. They are highlighted in orange and excluded from wall LF. Review these locations before continuing; they have no opposing face defining a separate wall.`);
+  if(conversion.preservedCadEnds)notes.push(`Original CAD corner cuts were retained on ${conversion.preservedCadEnds} wall${conversion.preservedCadEnds===1?'':'s'} to preserve their exact face lengths.`);
   if(conversion.repairs.length) {
     const gaps=conversion.repairs.map(repair=>Number(repair.gapInches.toFixed(3))).join('″, ');
     const change=conversion.trace.reduce((sum,wall)=>sum+(wall.outsideLength-wall.originalOutsideLength)*12,0);
@@ -70,7 +72,9 @@ export function selectCadLayout(result,id) {
   const trace=result.conversion.trace.filter(wall=>ids.has(wall.id));
   const handles=new Set(trace.flatMap(wall=>wall.sourceHandles));
   const conversion={...result.conversion,wallCount:layout.wallCount,totalLF:layout.totalLF,
-    selectedLayout:layout.name,trace,repairs:result.conversion.repairs.filter(repair=>repair.handles.some(handle=>handles.has(handle)))};
+    selectedLayout:layout.name,trace,repairs:result.conversion.repairs.filter(repair=>repair.handles.some(handle=>handles.has(handle))),
+    junctionDetails:(result.conversion.junctionDetails||[]).filter(detail=>detail.wallHandles.some(handle=>handles.has(handle))),
+    preservedCadEnds:result.document.walls.filter(wall=>ids.has(wall.id)&&wall.cadEndCuts).length};
   conversion.warnings=conversionWarnings(conversion);
   return {...result,document:readDocument({...result.document,walls:result.document.walls.filter(wall=>ids.has(wall.id))}),
     conversion};
@@ -117,34 +121,10 @@ export function convertLegacyCad(text,{units,repairSmallGaps=true}={}) {
   const excluded=untagged.map(e=>({a:{x:Number(value(e,10)),y:-Number(value(e,20))},b:{x:Number(value(e,11)),y:-Number(value(e,21))}}))
     .filter(line=>[line.a.x,line.a.y,line.b.x,line.b.y].every(Number.isFinite));
   const repairs=repairSmallGaps?repairCadCorners(edges,excluded):[];
-  const outer=edges.filter(e=>e.face===99),inner=edges.filter(e=>e.face===0),used=new Set(),pairs=[];
-  // Miter cutbacks depend on the adjoining wall's thickness, so a 10-inch
-  // run meeting 12-inch walls can legitimately exceed twice its own width.
-  const maxCornerWidth=Math.max(...edges.map(edge=>edge.thickness));
-  for(const outside of outer){
-    const length=distance(outside.a,outside.b),ux=(outside.b.x-outside.a.x)/length,uy=(outside.b.y-outside.a.y)/length;
-    const candidates=[];
-    for(const inside of inner){
-      if(used.has(inside.handle)||inside.key!==outside.key)continue;
-      let a=inside.a,b=inside.b;
-      if((b.x-a.x)*ux+(b.y-a.y)*uy<0)[a,b]=[b,a];
-      const lateral=p=>(p.x-outside.a.x)*(-uy)+(p.y-outside.a.y)*ux;
-      const da=lateral(a),db=lateral(b),along=p=>(p.x-outside.a.x)*ux+(p.y-outside.a.y)*uy;
-      const t0=along(a),t1=along(b);
-      if(Math.abs(da-db)>EPS||Math.abs(Math.abs(da)-outside.thickness)>EPS||(length>=outside.thickness&&Math.min(length,t1)-Math.max(0,t0)<EPS))continue;
-      const score=Math.abs(t0)+Math.abs(t1-length);
-      if(score>maxCornerWidth*2+EPS)continue;
-      candidates.push({inside,a,b,score});
-    }
-    candidates.sort((a,b)=>a.score-b.score);
-    if(!candidates.length||candidates[1]&&Math.abs(candidates[1].score-candidates[0].score)<EPS)throw Error('Some wall faces could not be paired unambiguously. Review the WALLS layer in CAD before importing.');
-    const match=candidates[0];used.add(match.inside.handle);
-    pairs.push({outside,inside:match.inside,a:midpoint(outside.a,match.a),b:midpoint(outside.b,match.b),polygon:[outside.a,outside.b,match.b,match.a]});
-  }
-  if(used.size!==inner.length)throw Error('Some inside wall faces were not paired. Conversion stopped for review.');
+  const {pairs,details}=pairCadWallFaces(edges);
   const points=edges.flatMap(e=>[e.a,e.b]),left=Math.min(...points.map(p=>p.x)),top=Math.min(...points.map(p=>p.y));
   const feet=p=>({x:(p.x-left)/12,y:(p.y-top)/12});
-  const seen=new Map(),walls=[],trace=[],duplicateFaces=[];
+  const seen=new Map(),walls=[],trace=[],duplicateFaces=[],sourcePairs=[];
   for(const pair of pairs){
     const key=pair.polygon.map(p=>`${p.x.toFixed(5)},${p.y.toFixed(5)}`).sort().join('|');
     if(seen.has(key)){
@@ -156,28 +136,33 @@ export function convertLegacyCad(text,{units,repairSmallGaps=true}={}) {
     const a=feet(pair.a),b=feet(pair.b),outside=pair.outside,origin=feet(outside.a),finish=feet(outside.b);
     const cross=(b.x-a.x)*(origin.y-a.y)-(b.y-a.y)*(origin.x-a.x);
     const wall={id:walls.length+1,x1:a.x,y1:a.y,x2:b.x,y2:b.y,thickness:outside.thickness,depth:outside.height/12,footing:null,lengthBasis:'outside',pendingFace:true,traceSide:cross>0?-1:1,faceStart:origin,faceEnd:finish};
-    walls.push(wall);trace.push({id:wall.id,sourceHandles:[outside.handle,pair.inside.handle],outsideLength:distance(outside.a,outside.b)/12,originalOutsideLength:distance(outside.originalA,outside.originalB)/12,sourcePolygon:pair.polygon.map(feet)});
+    walls.push(wall);sourcePairs.push(pair);trace.push({id:wall.id,sourceHandles:[outside.handle,pair.inside.handle],outsideLength:distance(outside.a,outside.b)/12,originalOutsideLength:distance(outside.originalA,outside.originalB)/12,sourcePolygon:pair.polygon.map(feet)});
   }
   if (!walls.length) throw Error('No complete walls were found in this DXF.');
   // A plausible pairing is not enough: the existing editor must reproduce
   // each source footprint and its measured outside face before we accept it.
   const tolerance = 1 / 768; // 1/64 inch, in feet.
-  for (let index = 0; index < walls.length; index++) {
-    const wall = walls[index], sourcePolygon = trace[index].sourcePolygon;
+  const matchesSource = (wall,index) => {
+    const sourcePolygon=trace[index].sourcePolygon;
     const polygon = wallPolygon(wall, walls, (w) => w.thickness / 12);
-    if (!polygon || polygon.some((point) => !sourcePolygon.some((source) => dist(point.x, point.y, source.x, source.y) < tolerance))
-      || sourcePolygon.some((source) => !polygon.some((point) => dist(point.x, point.y, source.x, source.y) < tolerance))
-      || Math.abs(wallMeasuredLen(wall, walls, 'outside') - trace[index].outsideLength) > tolerance) {
-      throw Error('Some CAD corners or wall lengths could not be preserved. Review the wall layout in CAD before importing.');
-    }
+    return polygon && !polygon.some(point=>!sourcePolygon.some(source=>dist(point.x,point.y,source.x,source.y)<tolerance))
+      && !sourcePolygon.some(source=>!polygon.some(point=>dist(point.x,point.y,source.x,source.y)<tolerance))
+      && Math.abs(wallMeasuredLen(wall,walls,'outside')-trace[index].outsideLength)<=tolerance;
+  };
+  for(let index=0;index<walls.length;index++)if(!matchesSource(walls[index],index)) {
+    const cuts=cadEndCuts(sourcePairs[index],edges);
+    if(cuts)walls[index]={...walls[index],cadEndCuts:cuts};
   }
+  if(walls.some((wall,index)=>!matchesSource(wall,index)))throw Error('Some CAD corners or wall lengths could not be preserved. Review the wall layout in CAD before importing.');
   const document = readDocument({walls});
   const layouts = cadLayouts(walls,trace);
   const conversion={
     profile:'legacy-WALLDATA-v1', units:'inches', sourceWallEdges:edges.length,
     pairedRuns:pairs.length, duplicateSquareFacePairs:duplicateFaces.length,
     wallCount:walls.length, totalLF:trace.reduce((sum,wall)=>sum+wall.outsideLength,0),
-    ignoredAnnotations:annotations.length,excludedLines:untagged.length,layouts,repairs:repairs.map(repair=>({...repair,location:feet(repair.after)})),trace
+    ignoredAnnotations:annotations.length,excludedLines:untagged.length,layouts,repairs:repairs.map(repair=>({...repair,location:feet(repair.after)})),trace,
+    junctionDetails:details.map(detail=>({...detail,a:feet(detail.a),b:feet(detail.b)})),
+    preservedCadEnds:walls.filter(wall=>wall.cadEndCuts).length
   };
   conversion.warnings=conversionWarnings(conversion);
   return {document,settings:{rowColors:{}},conversion};

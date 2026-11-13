@@ -33,7 +33,15 @@ export function pairCadWallFaces(edges) {
     const match=available[0];used.add(match.inside.handle);
     pairs.push({outside,inside:match.inside,a:midpoint(outside.a,match.a),b:midpoint(outside.b,match.b),polygon:[outside.a,outside.b,match.b,match.a]});
   }
-  if(used.size!==inner.length)throw Error('Some inside wall faces were not paired. Conversion stopped for review.');
+  // End/junction details can carry either face tag in legacy drawings. Apply
+  // the same geometric checks to unused inside lines as to outside details.
+  for(const edge of inner.filter(edge=>!used.has(edge.handle))) {
+    if(pairs.some(pair=>pair.inside.key===edge.key&&(
+      distance(pair.inside.a,edge.a)<EPS&&distance(pair.inside.b,edge.b)<EPS
+      ||distance(pair.inside.a,edge.b)<EPS&&distance(pair.inside.b,edge.a)<EPS
+    )))throw pairingError();
+    unmatched.push(edge);
+  }
   const details=unmatched.map(edge=>{
     const length=distance(edge.a,edge.b);
     if(length>edge.thickness*2+JOIN_TOLERANCE)throw pairingError();

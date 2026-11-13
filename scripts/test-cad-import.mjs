@@ -74,6 +74,11 @@ try {
   assert.equal(capped.conversion.totalLF,10);
   assert.equal(computeTakeoff(capped.document).totalLF,10);
   assert.equal(capped.conversion.junctionDetails.length,1);
+  const insideCap=convertLegacyCad(dxf([...cappedRun.slice(0,2),edge("INNER-CAP",[120,0],[120,-8],0)]),{units:"inches"});
+  assert.equal(insideCap.conversion.junctionDetails.length,1,"end details can carry an inside face tag too");
+  assert.deepEqual(insideCap.document,capped.document);
+  assert.equal(insideCap.conversion.totalLF,10);
+  assert.throws(()=>convertLegacyCad(dxf([...edges,edge("INNER-ORPHAN",[240,0],[248,0],0)]),{units:"inches"}),/unambiguously/,"stray inside fragments still stop conversion");
   const staleCap=convertLegacyCad(dxf([...cappedRun.slice(0,2),edge("OLD-CAP",[120,0],[120,-8],99,8,42,230)]),{units:"inches"});
   assert.equal(staleCap.conversion.junctionDetails.length,1,"a connected cap can retain an old height/color after wall edits");
   assert.equal(staleCap.conversion.totalLF,10);

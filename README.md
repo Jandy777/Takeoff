@@ -102,6 +102,8 @@ Short, one-sided end/junction lines can be recognized when both ends touch alrea
 
 If a DXF contains disconnected wall groups, the preview requires a layout choice before continuing. Each option shows its wall count, thicknesses, and LF; layouts are numbered from left to right. This lets different CAD revisions in the same file become separate Takeoff drawings. An explicit **Keep all layouts together** option is available when the groups belong in one drawing.
 
+End/junction recognition applies to either inside- or outside-tagged detail lines. Unused inside faces must pass the same short-length, attachment, thickness and crossing checks; duplicates and unresolved fragments remain blocked.
+
 After selecting a layout, **Include other wall groups with this drawing** lets the estimator add a detached garage or another component explicitly. The preview and LF include only the chosen groups; switching the main layout clears the additional selections. Nearby groups are never assigned to a revision automatically.
 
 The first version imports walls only. Footings use Takeoff defaults; pads, windows, drain tile, ledges, text, and other CAD details must be reviewed or added separately. Direct DWG import and bulk-folder conversion are not included. Files must be nonempty, at most 10 MB, and contain no more than 2,000 model-space wall-face lines.

@@ -34,3 +34,14 @@ export const drawingRepository = {
     return Array.isArray(result) ? result[0] : result;
   },
 };
+
+function builderChecked(result) {
+  if(result.error?.code==='23505')throw Error("That customer / builder is already listed.");
+  return checked(result);
+}
+export const builderRepository={
+  async list(){return checked(await supabase.from("builders").select("id,name,active").eq("active",true).order("name"));},
+  async add(name){return builderChecked(await supabase.from("builders").upsert({name,active:true},{onConflict:"name_key"}).select("id,name,active").single());},
+  async rename(id,name){return builderChecked(await supabase.from("builders").update({name}).eq("id",id).select("id,name,active").single());},
+  async remove(id){return checked(await supabase.from("builders").update({active:false}).eq("id",id).select("id").single());}
+};

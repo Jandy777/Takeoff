@@ -8,6 +8,7 @@ import { DrawingPreview } from "./DrawingPreview";
 import { TakeoffTeam } from "./TakeoffTeam";
 import { TakeoffAccount } from "./TakeoffAccount";
 import { AuthReturnNotice } from "./AuthReturnNotice";
+import {BuilderManager} from "./BuilderManager";
 
 const date = (value) => value && Number.isFinite(new Date(value).getTime()) ? new Date(value).toLocaleDateString(undefined,{month:"short",day:"numeric",year:"numeric"}) : "Not recorded";
 const labels = {all:"All drawings", custom:"Custom jobs", tract:"Tract homes", builders:"Builders", team:"Your team", account:"Your account"};
@@ -31,7 +32,7 @@ function Inspector({ drawing, library, account, previewLoader }) {
   </aside>;
 }
 
-export function LibraryWorkspace({ library, account, hasUnfiledDrawing, previewLoader }) {
+export function LibraryWorkspace({ library, account, hasUnfiledDrawing, previewLoader, directory }) {
   const {section,setSection,path,setPath,query,setQuery,selectedId,setSelectedId,expanded,setExpanded}=useLibraryNavigation(account.session.user.id);
   const tree=useMemo(()=>buildFolders(library.drawings,section),[library.drawings,section]);
   const current=resolveFolder(tree,path), searching=Boolean(query.trim());
@@ -60,6 +61,7 @@ export function LibraryWorkspace({ library, account, hasUnfiledDrawing, previewL
         <nav className="folder-breadcrumb" aria-label="Folder breadcrumb"><button onClick={()=>navigate([])} aria-label="Library root"><House/></button><button onClick={()=>navigate([])}>{labels[section]}</button>{current.path.map((part,index)=><React.Fragment key={index}><CaretRight/><button onClick={()=>navigate(current.path.slice(0,index+1))}>{part}</button></React.Fragment>)}</nav>
         <header className="library-page-header explorer-heading"><div><h1>{searching?"Search results":current.path.length>=4?`${current.path[current.path.length-2]} · ${current.name}`:current.path.length?current.name:labels[section]}</h1><p className="library-muted">{searching?`${files.length} matching drawings across ${labels[section].toLowerCase()}`:`${current.count} drawing${current.count===1?"":"s"}${current.children.length?` · ${current.children.length} folder${current.children.length===1?"":"s"}`:""}`}</p></div><div className="explorer-actions"><button className="library-button" aria-label="Refresh drawings" disabled={library.busy} onClick={library.refresh}><ArrowClockwise/></button>{account.canEdit && <><button className="library-button" disabled={library.busy} onClick={()=>library.setModal("import")}>Import CAD drawing</button><button className="library-button primary" disabled={library.busy} onClick={()=>library.setModal("create")}><Plus/> New drawing</button></>}</div></header>
         {(library.active || (hasUnfiledDrawing && account.canEdit)) && <div className="explorer-resume"><span>{library.active ? `${library.active.project_name} · ${library.active.print_revision}` : "An unfiled drawing is open"}</span><button className="library-button" onClick={()=>library.active?library.setOpen(false):library.setModal("capture")}>{library.active?"Continue drawing":"Save open drawing"}</button></div>}
+        {section==='builders'&&directory&&<details className="builder-directory"><summary>Manage customer / builder list</summary><BuilderManager directory={directory} canEdit={account.canEdit}/></details>}
         <div className="explorer-list">
           {!searching && current.children.map((folder)=><button className="explorer-folder" key={folder.key} onClick={()=>navigate(folder.path)}><FolderSimple/><span>{folder.name}</span><small>{folder.count} drawing{folder.count===1?"":"s"}</small><CaretRight/></button>)}
           {files.length>0 && <><div className="explorer-file-labels"><span>Drawing</span><span>Print / revision</span><span>Estimator</span><span>Last saved</span></div>{files.map((drawing)=><button className={`explorer-file${selectedId===drawing.id?" selected":""}`} key={drawing.id} aria-pressed={selectedId===drawing.id} disabled={library.busy} onClick={()=>setSelectedId(drawing.id)} onDoubleClick={()=>library.openDrawing(drawing.id)}><span className="explorer-file-title"><File/><span><strong>{drawingTitle(drawing)}</strong>{searching && <small>{drawingPath(drawing).join(" / ")}</small>}{drawing.locked && <small className="revision-preserved">Preserved revision</small>}</span></span><span>{drawing.print_revision}</span><span>{drawing.estimator_name||"—"}</span><span>{date(drawing.updated_at)}</span></button>)}</>}

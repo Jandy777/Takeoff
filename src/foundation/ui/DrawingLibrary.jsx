@@ -4,10 +4,13 @@ import { TakeoffSignIn } from "./TakeoffSignIn";
 import { LibraryWorkspace } from "./LibraryWorkspace";
 import { CadImportCard } from "./CadImportCard";
 import { useCadImport } from "../hooks/useCadImport";
+import { useBuilders } from "../hooks/useBuilders";
 import "./library.css";
 
 export function DrawingLibrary({ library, account, hasUnfiledDrawing }) {
   const cad = useCadImport();
+  const directory=useBuilders(account);
+  React.useEffect(()=>{if(library.modal||library.open)directory.refresh();},[library.modal,library.open,directory.refresh]);
   React.useEffect(() => { if(library.modal !== "import") cad.reset(); },[library.modal,cad.reset]);
   const closeModal = React.useCallback(() => { if(library.cancelModal)library.cancelModal();else{library.setModal(null); library.setError("");} }, [library.cancelModal,library.setModal, library.setError]);
   // Refreshing an existing membership must not unmount a partially filled
@@ -16,11 +19,11 @@ export function DrawingLibrary({ library, account, hasUnfiledDrawing }) {
   const gated = !account.session || account.recovery || !account.member;
   return <>
     {(library.open || gated) && <div className="drawing-library" role="region" aria-label="Drawing library">
-      {openingAccount ? <div className="library-loading" role="status">Opening your library…</div> : !account.session || account.recovery ? <TakeoffSignIn account={account} /> : !account.member ? <div className="library-loading"><h2>Your account needs access</h2><p>Ask your Takeoff administrator to add {account.session.user.email} to the team.</p>{account.error && <p className="library-error">{account.error}</p>}<div><button className="library-button" onClick={account.refreshMember}>Check access again</button> <button className="library-button" onClick={library.signOut}>Sign out</button></div></div> : <LibraryWorkspace key={account.session.user.id} library={library} account={account} hasUnfiledDrawing={hasUnfiledDrawing}/>}
+      {openingAccount ? <div className="library-loading" role="status">Opening your library…</div> : !account.session || account.recovery ? <TakeoffSignIn account={account} /> : !account.member ? <div className="library-loading"><h2>Your account needs access</h2><p>Ask your Takeoff administrator to add {account.session.user.email} to the team.</p>{account.error && <p className="library-error">{account.error}</p>}<div><button className="library-button" onClick={account.refreshMember}>Check access again</button> <button className="library-button" onClick={library.signOut}>Sign out</button></div></div> : <LibraryWorkspace key={account.session.user.id} library={library} account={account} hasUnfiledDrawing={hasUnfiledDrawing} directory={directory}/>}
     </div>}
     {library.modal && !gated && (library.modal === "import"
       ? <CadImportCard cad={cad} canEdit={account.canEdit} error={library.error} onClose={closeModal} onContinue={library.beginImport}/>
-      : <DrawingDetailsCard key={`${account.session.user.id}:${library.modal}`} kind={library.modal === "import-details" ? "import" : library.modal} initialDetails={library.modal === "import-details" ? {project_name:library.importDraft?.sourceName?.replace(/\.dxf$/i,"") || ""} : undefined} active={library.active} drawings={library.drawings} busy={library.busy} error={library.error} onClose={closeModal} onSubmit={library.submit}/>)}
+      : <DrawingDetailsCard directory={directory} canEdit={account.canEdit} key={`${account.session.user.id}:${library.modal}`} kind={library.modal === "import-details" ? "import" : library.modal} initialDetails={library.modal === "import-details" ? {project_name:library.importDraft?.sourceName?.replace(/\.dxf$/i,"") || ""} : undefined} active={library.active} drawings={library.drawings} busy={library.busy} error={library.error} onClose={closeModal} onSubmit={library.submit}/>)}
   </>;
 }
 

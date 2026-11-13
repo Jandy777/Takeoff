@@ -1,5 +1,13 @@
 # Takeoff drawing library
 
+The shared verified customer/builder directory uses `public.builders`, seeded
+from saved drawing names. [builders.sql](builders.sql) documents its additive
+schema, normalized unique name, soft removal, grants and RLS. Estimators/admins
+can maintain choices; viewers can read them. No client metadata determines roles.
+Existing drawing customer names remain snapshots, with no cascading updates or
+deletes. [test-builders.sql](test-builders.sql) verifies the role boundary and
+add/rename/remove/restore/duplicate behavior in a transaction that rolls back.
+
 The local app uses the dedicated Free-plan project `czjalcygmijkoqplukqt`.
 No Storage buckets or PDF uploads are used. Drawing geometry is stored in
 `public.drawings.document` as versioned JSON; color overrides are stored in

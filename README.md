@@ -86,6 +86,14 @@ Wall and footing colors are independent, so changing a footing size does not cha
 
 Drawing geometry is stored as versioned JSON, with appearance settings and project metadata. There are no PDF storage buckets in the current implementation. See [the storage and revision notes](supabase/README.md#saves-and-revisions).
 
+### Verified customers / builders
+
+The drawing card uses one **Customer / Builder** field with suggestions from a shared verified company list. Type a few letters to find a company, or add a new name from the card before creating a drawing. Capitalization and extra spaces do not create duplicate companies. Existing drawings seeded the initial directory.
+
+Under **Builders → Manage customer / builder list**, estimators and administrators can add, rename or remove choices. The same controls are available inside the drawing card, without clearing its other fields. Viewers can read the directory but cannot change it; database policies enforce these permissions. Removing a choice retires it from suggestions, and adding that name again restores it. Renaming/removing a choice preserves the names recorded on existing drawings and revisions. Existing records can retain a retired name when their other details are edited.
+
+The additive schema reference is [supabase/builders.sql](supabase/builders.sql). Role and duplicate checks in [supabase/test-builders.sql](supabase/test-builders.sql) run in a transaction and roll back all test fixtures.
+
 ### Importing the existing CAD archive
 
 Estimators and administrators can choose **Import CAD drawing** beside **New drawing**. Select a legacy ASCII DXF, review the wall preview and LF, then complete the usual drawing-details card. **Create drawing** saves a separate editable drawing through the existing library; selecting and editing its walls works normally. **New drawing** continues to start with an empty plan.
